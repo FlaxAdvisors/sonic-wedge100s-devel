@@ -2,6 +2,17 @@
 
 **This document is the authoritative reference for all development on `FlaxAdvisors/sonic-buildimage`.** CLAUDE.md loads this file. Every contributor (human or AI) must follow these rules without exception.
 
+### Skills That Enforce This Workflow
+
+| Skill | When Loaded | What It Enforces |
+|-------|-------------|-----------------|
+| `wedge100s-topic-branches` | Any change to `FlaxAdvisors/sonic-buildimage` | Branch ownership, merge workflow, commit conventions |
+| `sonic-submodule-patches` | Any change inside `src/<submodule>/` | Quilt patch export, series management, conflict resolution |
+| `wedge100s-doc-check` | **[NEEDED]** Before committing code changes | Verify docstrings/Doxygen present on modified functions |
+| `wedge100s-build-verify` | **[NEEDED]** After merging to master | Run platform .deb build, report pass/fail |
+
+Skills marked **[NEEDED]** do not exist yet. They should be created to close enforcement gaps.
+
 ---
 
 ## 1. Topic Branch Discipline
@@ -255,3 +266,45 @@ The platform .deb must build cleanly before the merge is considered complete.
 5. **Do not force-push topic branches.** Other branches may have merged from them.
 6. **Do not add features without docstrings.** Undocumented code is incomplete code.
 7. **Do not hand-edit patch files.** Use `quilt refresh` after resolving conflicts.
+
+---
+
+## 8. Skills Reference
+
+### Existing Skills
+
+**`wedge100s-topic-branches`** — Loaded automatically when any change targets `FlaxAdvisors/sonic-buildimage`. Contains:
+- Branch structure and dependency graph
+- File-to-branch ownership mapping
+- Step-by-step workflow for making changes
+- Merge and upstream sync procedures
+- Commit message convention
+
+**`sonic-submodule-patches`** — Loaded when any change touches `src/<submodule>/`. Contains:
+- Quilt patch creation, application, and refresh procedures
+- `slave.mk` integration details (how the build system applies patches)
+- Conflict resolution workflow
+- What survives `make distclean` / `make init`
+
+### Missing Skills (Should Be Created)
+
+**`wedge100s-doc-check`** — Should be loaded before committing any code change to a topic branch. Purpose:
+- Scan modified `.py` files for public methods missing docstrings
+- Scan modified `.c` files for functions missing `@brief` Doxygen headers
+- Report gaps and block the commit until they're fixed
+- Distinguish between "needs full docstring" (new function) vs "needs update" (changed signature)
+- Trigger condition: any `git add` of `.py` or `.c` files under `wedge100s-32x/`
+
+**`wedge100s-build-verify`** — Should be loaded after merging any topic branch to master. Purpose:
+- Run `BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb`
+- Parse build output for errors vs warnings
+- Report pass/fail with specific failure context
+- Optionally verify quilt patches apply cleanly across all submodules before building
+- Trigger condition: after `git merge` into master on `sonic-buildimage`
+
+**`wedge100s-branch-audit`** — Should be loaded periodically or on request. Purpose:
+- Verify all topic branches are synced with master (no stale branches)
+- Check that file ownership hasn't drifted (no files on wrong branches)
+- Verify documentation coverage across all branches
+- Report completeness: files in archive tag vs files on merged master
+- Trigger condition: on request, or before major milestones (image builds, releases)
