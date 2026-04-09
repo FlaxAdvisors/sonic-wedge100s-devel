@@ -1,26 +1,43 @@
 ---
 name: wedge100s-build-verify
-description: Use after merging any wedge100s topic branch to master — runs the platform .deb build, verifies quilt patches apply, and reports pass or fail with specific error context
+description: Use after merging any wedge100s topic branch to master, or after modifying submodule source — verifies quilt patches, builds the correct target for the changed component, and reports pass or fail with error context
 ---
 
 # Wedge 100S Build Verification
 
 ## Overview
 
-After merging a topic branch to master, verify the platform .deb builds cleanly. A merge without build verification is incomplete.
+After merging a topic branch to master or modifying submodule source, verify the affected build target produces a clean artifact. A merge without build verification is incomplete.
 
 ## When to Use
 
 - After `git merge origin/wedge100s/<topic>` into master
 - After updating submodule patches
 - Before declaring any task complete that touched platform code
-- Before deploying a `.deb` to the target hardware
+- Before deploying artifacts to the target hardware
+
+## Critical: BLDENV and Artifact Type Mapping
+
+**Submodule packages** (in Docker containers) build in **bookworm**.
+**Platform packages** (on host filesystem) build in **trixie**.
+**Python-only packages** produce `.whl` wheels, not `.deb` files.
+
+| Component | BLDENV | Artifact Type | Make Target |
+|-----------|--------|--------------|-------------|
+| Platform .deb (modules, utils, services) | trixie | `.deb` | `target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb` |
+| swss / orchagent | bookworm | `.deb` | `target/debs/bookworm/swss_1.0.0_amd64.deb` |
+| syncd | bookworm | `.deb` | `target/debs/bookworm/syncd_1.0.0_amd64.deb` |
+| libsairedis | bookworm | `.deb` | `target/debs/bookworm/libsairedis_1.0.0_amd64.deb` |
+| libswsscommon | bookworm | `.deb` | `target/debs/bookworm/libswsscommon_1.0.0_amd64.deb` |
+| sonic-utilities | bookworm | `.whl` | `target/python-wheels/bookworm/sonic_utilities-1.2-py3-none-any.whl` |
+| xcvrd | bookworm | `.whl` | `target/python-wheels/bookworm/sonic_xcvrd-1.0-py3-none-any.whl` |
+| psud | bookworm | `.whl` | `target/python-wheels/bookworm/sonic_psud-1.0-py3-none-any.whl` |
+| thermalctld | bookworm | `.whl` | `target/python-wheels/bookworm/sonic_thermalctld-1.0-py3-none-any.whl` |
+| Full image | (both) | `.bin` | `target/sonic-broadcom.bin` (no BLDENV prefix) |
 
 ## Verification Procedure
 
 ### Step 1: Verify Quilt Patches
-
-Before building, confirm all submodule patches apply cleanly:
 
 ```bash
 cd /export/sonic/sonic-buildimage
@@ -38,59 +55,58 @@ for d in src/*.patch; do
 done
 ```
 
-**If any patch fails:** Stop. Fix the patch on `wedge100s/submodule-patches` using the `sonic-submodule-patches` skill (quilt refresh workflow). Do not proceed to build.
+**If any patch fails:** Stop. Fix on `wedge100s/submodule-patches` using `sonic-submodule-patches` skill. Do not proceed.
 
-### Step 2: Clean Stale Artifacts
+### Step 2: Identify What to Build
+
+Match the changed files to the correct build target:
+
+| Changed Files | Build Command |
+|--------------|---------------|
+| `platform/.../wedge100s-32x/**` | `BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb` |
+| `src/sonic-swss/**` | `BLDENV=bookworm make target/debs/bookworm/swss_1.0.0_amd64.deb` then `make target/docker-orchagent.gz` |
+| `src/sonic-utilities/**` | `BLDENV=bookworm make target/python-wheels/bookworm/sonic_utilities-1.2-py3-none-any.whl` |
+| `src/sonic-platform-daemons/**` | `BLDENV=bookworm make target/python-wheels/bookworm/sonic_xcvrd-1.0-py3-none-any.whl` (etc.) then `make target/docker-platform-monitor.gz` |
+| `src/sonic-sairedis/**` | `BLDENV=bookworm make target/debs/bookworm/syncd_1.0.0_amd64.deb` then `make target/docker-syncd-brcm.gz` |
+| `src/*.patch/**` (patch files only) | Build whatever the patched submodule produces |
+| Multiple components | Build each affected target separately |
+
+### Step 3: Clean and Build
 
 ```bash
-cd /export/sonic/sonic-buildimage
-rm -f target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+# Clean stale artifact (append -clean to any target path)
+make <target-path>-clean
+
+# Build
+[BLDENV=<env>] make <target-path>
 ```
-
-### Step 3: Build Platform .deb
-
-```bash
-BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
-```
-
-This can take 5-15 minutes depending on cache state.
 
 ### Step 4: Interpret Results
 
-**Success indicators:**
-```
-[ finished ] [ target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb ]
-```
-And the file exists:
-```bash
-ls -la target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
-```
+**Success:** `[ finished ]` message and artifact file exists.
 
-**Common failure modes and fixes:**
+**Common failures:**
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `No rule to make target` | `platform-modules-accton.mk` not included in `rules.mk` | Uncomment include on `wedge100s/dev-build-only` |
-| `unknown package sonic-platform-accton-wedge100s-32x` | Missing from `debian/control` | Add package stanza on `wedge100s/build-infra` |
+| `No rule to make target` | `.mk` not included in `rules.mk` | Check `wedge100s/dev-build-only` or `wedge100s/build-infra` |
+| `unknown package` | Missing from `debian/control` | Add stanza on `wedge100s/build-infra` |
 | `cannot stat .../udev/*` | Missing `udev/` directory | Add udev rules on `wedge100s/build-infra` |
-| `Hunk FAILED` in quilt patch | Submodule code changed, patch context stale | Use `quilt push -f && quilt refresh` on `wedge100s/submodule-patches` |
-| `sonic_platform-1.0-py3-none-any.whl missing` | `.install` file references wheel not built | Verify `sonic_platform_setup.py` exists and `debian/rules` builds it |
-| `modules/Makefile: No such file` | Missing kernel module skeleton | Add `modules/` dir on `wedge100s/build-infra` |
+| `Hunk FAILED` in quilt | Patch context stale | `quilt push -f && quilt refresh` on `wedge100s/submodule-patches` |
+| `.whl missing` in `.install` | Wheel not built by `debian/rules` | Check `sonic_platform_setup.py` and `debian/rules` build section |
+| `modules/Makefile: No such file` | Missing kernel module skeleton | Add on `wedge100s/build-infra` |
+| Wrong BLDENV (target not found) | Used trixie for a bookworm package | Check the BLDENV mapping table above |
 
 ### Step 5: Report
 
-After build completes, report:
 - **PASS** or **FAIL**
-- If FAIL: the specific error line from `[ FAIL LOG START ]` to `[ FAIL LOG END ]`
-- If PASS: the .deb file size and path
+- If FAIL: error from `[ FAIL LOG START ]` to `[ FAIL LOG END ]`
+- If PASS: artifact path and size
 
-## Quick Reference
+## Quick Reference — Platform .deb Only
 
 ```bash
-# Full verify sequence (copy-paste ready)
-cd /export/sonic/sonic-buildimage
-git checkout master
-git pull origin master
+cd /export/sonic/sonic-buildimage && git checkout master && git pull origin master
 rm -f target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
 BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
 ls -la target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb

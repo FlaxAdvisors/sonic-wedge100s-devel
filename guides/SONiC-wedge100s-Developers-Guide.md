@@ -399,7 +399,7 @@ BUILD_SKIP_TEST = y
 SONIC_BUILD_MEMORY = 320g
 SONIC_DPKG_CACHE_METHOD = rwcache
 SONIC_DPKG_CACHE_SOURCE = /export/sonic/dpkg-cache
-SONIC_IMAGE_VERSION = wedge100s-$(shell date +%y%m%d)-$(shell git -C /export/sonic/sonic-buildimage.claude rev-parse --short HEAD)
+SONIC_IMAGE_VERSION = wedge100s-$(shell date +%y%m%d)-$(shell git -C /export/sonic/sonic-buildimage rev-parse --short HEAD)
 DEFAULT_BUILD_LOG_TIMESTAMP = simple
 ```
 
@@ -425,13 +425,29 @@ Source packages under `src/` and `platform/` are compiled into `.deb` files insi
 
 ```bash
 # Platform deb (most frequently rebuilt for Wedge 100S work)
-make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+# Platform .debs build in the TRIXIE pass (kernel modules compiled against trixie headers)
+BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
 
-# Other debs built from submodules (examples) 
-make target/debs/trixie/sonic-utilities_1.0-1_all.deb
-make target/debs/trixie/libswsscommon_1.0.0_amd64.deb
-make target/debs/trixie/sonic-sairedis_1.0.0_amd64.deb
+# Submodule debs build in the BOOKWORM pass (they go into bookworm-based Docker containers)
+BLDENV=bookworm make target/debs/bookworm/libswsscommon_1.0.0_amd64.deb
+BLDENV=bookworm make target/debs/bookworm/swss_1.0.0_amd64.deb
+BLDENV=bookworm make target/debs/bookworm/syncd_1.0.0_amd64.deb
+BLDENV=bookworm make target/debs/bookworm/libsairedis_1.0.0_amd64.deb
+
+# sonic-utilities is a Python WHEEL, not a .deb:
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_utilities-1.2-py3-none-any.whl
+
+# Platform daemons (xcvrd, psud, thermalctld) are individual Python wheels:
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_xcvrd-1.0-py3-none-any.whl
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_psud-1.0-py3-none-any.whl
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_thermalctld-1.0-py3-none-any.whl
 ```
+
+> **BLDENV rule of thumb:** Submodule packages (`src/*`) that end up inside Docker
+> containers build in **bookworm** (the container base). Platform packages
+> (`platform/*`) that install on the host filesystem build in **trixie** (the host
+> base). When in doubt, check where the `.deb` or `.whl` file actually lands:
+> `ls target/debs/bookworm/ target/debs/trixie/ target/python-wheels/bookworm/`
 
 #### Stage 2 — Docker images (`.gz`)
 
@@ -465,8 +481,8 @@ The RFS is slow to build (15–30 min) because it runs `debootstrap` and install
 `build_image.sh` packs the squashfs and all docker image `.gz` files into a self-extracting ONIE installer payload.
 
 ```bash
-# Full image build — runs bookworm pass (Docker images) then trixie pass (.bin)
-make BUILD_SKIP_TEST=y SONIC_BUILD_JOBS=40 target/sonic-broadcom.bin
+# Full image build — runs bookworm pass (Docker images) then trixie pass (.bin) uses rules/config.user
+make target/sonic-broadcom.bin
 ```
 
 > **Do not prefix with `BLDENV=trixie`** for full image builds — that skips the
@@ -483,22 +499,26 @@ For day-to-day platform work, only the platform `.deb` needs rebuilding. For cha
 
 ```bash
 # Most common: platform kernel modules or sonic_platform Python changed
-make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
 
 # swss orchagent changed (e.g. src/sonic-swss modified)
-make target/debs/trixie/swss_1.0.0_amd64.deb
+BLDENV=bookworm make target/debs/bookworm/swss_1.0.0_amd64.deb
 make target/docker-orchagent.gz
 
 # Platform daemons changed (xcvrd, psud, thermalctld — in src/sonic-platform-daemons)
-make target/debs/trixie/sonic-platform-daemons_1.0-1_all.deb
+# These are individual Python wheels, not a single aggregate .deb:
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_xcvrd-1.0-py3-none-any.whl
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_psud-1.0-py3-none-any.whl
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_thermalctld-1.0-py3-none-any.whl
 make target/docker-platform-monitor.gz
 
 # sonic-utilities changed (sfpshow, portstat, show/config CLI)
-make target/debs/trixie/sonic-utilities_1.0-1_all.deb
-# (utilities are installed into multiple containers — rebuild pmon, swss, lldp as needed)
+# sonic-utilities is a Python wheel, not a .deb:
+BLDENV=bookworm make target/python-wheels/bookworm/sonic_utilities-1.2-py3-none-any.whl
+# (utilities wheel is installed into multiple containers — rebuild pmon, swss, lldp as needed)
 
 # syncd / SAI changed
-make target/debs/trixie/syncd_1.0.0_amd64.deb
+BLDENV=bookworm make target/debs/bookworm/syncd_1.0.0_amd64.deb
 make target/docker-syncd-brcm.gz
 ```
 
@@ -524,11 +544,10 @@ make target/sonic-broadcom.bin
 
 # Chain: clean deb + docker image in one invocation
 make \
-  target/debs/trixie/swss_1.0.0_amd64.deb-clean \
+  target/debs/bookworm/swss_1.0.0_amd64.deb-clean \
   target/docker-orchagent.gz-clean
-make \
-  target/debs/trixie/swss_1.0.0_amd64.deb \
-  target/docker-orchagent.gz
+BLDENV=bookworm make target/debs/bookworm/swss_1.0.0_amd64.deb
+make target/docker-orchagent.gz
 ```
 
 **When to clean what:**
@@ -538,11 +557,11 @@ make \
 | `platform/.../wedge100s-32x/modules/*.c` (kernel module source) | `sonic-platform-accton-wedge100s-32x_1.1_amd64.deb` |
 | `platform/.../wedge100s-32x/sonic_platform/*.py` (Python platform API) | `sonic-platform-accton-wedge100s-32x_1.1_amd64.deb` |
 | `platform/.../wedge100s-32x/utils/*.c` (BMC/I2C daemon C source) | `sonic-platform-accton-wedge100s-32x_1.1_amd64.deb` |
-| `src/sonic-platform-daemons/**` (xcvrd, psud, thermalctld) | `sonic-platform-daemons_1.0-1_all.deb` + `docker-platform-monitor.gz` |
-| `src/sonic-swss/**` (orchagent, *syncd) | `swss_1.0.0_amd64.deb` + `docker-orchagent.gz` |
-| `src/sonic-sairedis/**` | `syncd_1.0.0_amd64.deb` + `docker-syncd-brcm.gz` |
-| `src/sonic-swss-common/**` | `libswsscommon_1.0.0_amd64.deb` + any docker depending on it |
-| `src/sonic-utilities/**` | `sonic-utilities_1.0-1_all.deb` + affected docker images |
+| `src/sonic-platform-daemons/**` (xcvrd, psud, thermalctld) | `target/python-wheels/bookworm/sonic_xcvrd-*.whl` (etc.) + `docker-platform-monitor.gz` |
+| `src/sonic-swss/**` (orchagent, *syncd) | `target/debs/bookworm/swss_1.0.0_amd64.deb` + `docker-orchagent.gz` |
+| `src/sonic-sairedis/**` | `target/debs/bookworm/libsairedis_1.0.0_amd64.deb` + `target/debs/bookworm/syncd_1.0.0_amd64.deb` + `docker-syncd-brcm.gz` |
+| `src/sonic-swss-common/**` | `target/debs/bookworm/libswsscommon_1.0.0_amd64.deb` + any docker depending on it |
+| `src/sonic-utilities/**` | `target/python-wheels/bookworm/sonic_utilities-1.2-py3-none-any.whl` + affected docker images |
 | `src/sonic-gnmi/**` | `sonic-gnmi_1.0-1_amd64.deb` + `docker-sonic-gnmi.gz` |
 | `device/accton/x86_64-accton_wedge100s_32x-r0/**` | No build needed — files are bind-mounted on target |
 | Any `Dockerfile` change | Clean the corresponding `docker-*.gz` target |
