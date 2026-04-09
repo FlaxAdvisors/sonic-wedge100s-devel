@@ -14,12 +14,38 @@ I need claude to act as the expert here. Take direction for changes but be sure 
 
 | Repo | Local Path | Purpose |
 |---|---|---|
-| `FlaxAdvisors/sonic-buildimage` | `/export/sonic/sonic-buildimage` | Platform fork (clean build clone, based on 202511) |
-| `FlaxAdvisors/sonic-wedge100s-devel` | `/export/sonic/sonic-wedge100s-devel` | This repo: tests, tools, notes, docs |
+| `FlaxAdvisors/sonic-buildimage` | `/export/sonic/sonic-buildimage` | "Platform fork" (clean build clone, based on 202511) |
+| `FlaxAdvisors/sonic-wedge100s-devel` | `/export/sonic/sonic-wedge100s-devel` | "This repo": tests, tools, notes, docs |
 
-All platform changes go through topic branches (`wedge100s/<topic>`) that PR into `master` on the platform fork. See `wedge100s-topic-branches` skill for workflow. Development artifacts (tests, notes, tools) stay in this repo and are never committed to the platform fork.
+### ⛔ MANDATORY — Read and follow `docs/workflow.md` before ANY platform fork work
 
-## Workflow Rules
+**The authoritative development workflow is defined in [`docs/workflow.md`](docs/workflow.md).** It covers topic branch discipline, submodule patch management, and documentation requirements. Every rule in that document is enforced — no exceptions. Read it before making any change to `FlaxAdvisors/sonic-buildimage`.
+
+Key rules (see workflow.md for full details):
+1. **All changes go through topic branches** — never commit directly to master
+2. **Submodule changes must be quilt patches** — see `sonic-submodule-patches` skill
+3. **Documentation is mandatory** — docstrings/Doxygen live WITH the code on the same branch, updated in the same commit as code changes
+4. **Branch ownership is strict** — each file is owned by exactly one topic branch (see ownership table in workflow.md)
+
+### ⛔ HARD RULE — All "Platform fork" development must be done in wedge100s/<topic> branches - see `wedge100s-topic-branches` skill for workflow
+
+**NOTE** ALL platform changes MUST go through topic branches (`wedge100s/<topic>`) that PR into `master` on the "Platform fork." Ancillary files supporting development, but not part of the target build (e.g. tests, notes, tools, guides), stay in "This repo" and are never committed to the "Platform fork."
+
+### ⛔ HARD RULE — Submodule Changes MUST Be Captured in Quilt Patches - see `wedge100s-submodule-patches` skill for workflow
+
+### ⛔ HARD RULE — Documentation Must Accompany Code Changes
+
+**Every new or modified function/method must have a docstring (Python) or Doxygen header (C).** Documentation lives on the SAME topic branch as the code it describes — never on a separate branch. The `wedge100s/docs` branch owns ONLY Sphinx infrastructure (.rst files, conf.py), not in-code annotations. See `docs/workflow.md` Section 3 for format requirements.
+
+**ANY change made inside a `src/<submodule>/` directory will be wiped by `make init` or `make distclean`.** This has caused repeated loss of work.
+
+**Before finishing any session that touches a submodule:**
+1. Export the change as a patch: `git format-patch HEAD~1 --output-directory ../src/<sub>.patch/`
+2. Update the series file: `ls ../src/<sub>.patch/*.patch | sort | xargs -n1 basename > ../src/<sub>.patch/series`
+3. Commit the `.patch/` directory to the main repo
+
+This applies to **all** submodules: `sonic-utilities`, `sonic-swss`, `sonic-ztp`, etc.
+If a fix is not in a `.patch/` file tracked by the main repo, it **does not exist**.
 
 ### ⛔ HARD STOP — I2C Bus Safety on Target Hardware
 
@@ -39,17 +65,6 @@ This applies to: i2cdetect, i2cget, i2cset, xxd/cat on hidraw0, rm of sfp_*_eepr
 
 **More generally -- but still as important for workflow:** All i2c related data and debugging should happen through the safe /run/wedge100s sysfs interface we have constructed for this platform. The only exceptions allowed outside this sysfs path would be for new features.
 
-### ⛔ HARD RULE — Submodule Changes MUST Be Captured in Quilt Patches
-
-**ANY change made inside a `src/<submodule>/` directory will be wiped by `make init` or `make distclean`.** This has caused repeated loss of work.
-
-**Before finishing any session that touches a submodule:**
-1. Export the change as a patch: `git format-patch HEAD~1 --output-directory ../src/<sub>.patch/`
-2. Update the series file: `ls ../src/<sub>.patch/*.patch | sort | xargs -n1 basename > ../src/<sub>.patch/series`
-3. Commit the `.patch/` directory to the main repo
-
-This applies to **all** submodules: `sonic-utilities`, `sonic-swss`, `sonic-ztp`, etc.
-If a fix is not in a `.patch/` file tracked by the main repo, it **does not exist**.
 
 ### Scope Control
 - Read only the files explicitly named in the prompt unless you ask first
