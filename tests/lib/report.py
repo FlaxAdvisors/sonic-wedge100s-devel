@@ -329,8 +329,12 @@ rows = []
 for psu in chassis.get_all_psus():
     rows.append({
         'name':    psu.get_name(),
+        'model':   psu.get_model(),
+        'serial':  psu.get_serial(),
         'present': psu.get_presence(),
         'status':  psu.get_status(),
+        'alarm':   getattr(psu, 'get_psu_alarm', lambda: None)(),
+        'input_ok': getattr(psu, 'get_input_status', lambda: None)(),
         'cap_w':   psu.get_capacity(),
         'v_out':   psu.get_voltage(),
         'a_out':   psu.get_current(),
@@ -342,7 +346,7 @@ print(json.dumps(rows))
 """
 
 def report_psu(ssh):
-    """Stage 06 — Power supplies."""
+    """Stage 06 — Power supplies (with model/serial, alarm, and input status)."""
     out, err, rc = ssh.run_python(_PSU_SCRIPT, timeout=60)
     if rc != 0 or not out.strip():
         _err(f"PSU API failed: {err.strip()}")
@@ -353,10 +357,22 @@ def report_psu(ssh):
     data = json.loads(out.strip())
     rows = []
     for p in data:
+        alarm_str = "—"
+        if p.get("alarm") is True:
+            alarm_str = "ALARM"
+        elif p.get("alarm") is False:
+            alarm_str = "OK"
+        input_str = "—"
+        if p.get("input_ok") is True:
+            input_str = "OK"
+        elif p.get("input_ok") is False:
+            input_str = "BAD"
         rows.append((
             p["name"],
             "Yes" if p["present"] else "No",
             "OK"  if p["status"]  else "FAIL",
+            alarm_str,
+            input_str,
             _fmt(p["v_in"],  "V AC"),
             _fmt(p["a_in"],  "A"),
             _fmt(p["v_out"], "V DC"),
@@ -365,11 +381,23 @@ def report_psu(ssh):
             _fmt(p["cap_w"], "W", 0),
         ))
     _table(
-        ["PSU", "Present", "Status",
+        ["PSU", "Present", "Status", "Alarm", "Input",
          "AC Vin", "AC Iin", "DC Vout", "DC Iout", "DC Pout", "Capacity"],
         rows,
         title="Power Supplies",
     )
+
+    # Model / serial (separate table for readability)
+    id_rows = []
+    for p in data:
+        if p["present"]:
+            id_rows.append((
+                p["name"],
+                p.get("model", "N/A"),
+                p.get("serial", "N/A"),
+            ))
+    if id_rows:
+        _table(["PSU", "Model", "Serial"], id_rows, title="PSU Identity")
 
 
 # ---------------------------------------------------------------------------
@@ -384,11 +412,13 @@ rows = []
 for idx in range(1, 33):
     sfp = chassis.get_sfp(idx)
     present = sfp.get_presence()
+    rx_los = getattr(sfp, 'get_rx_los', lambda: None)()
     rows.append({
         'index':   idx,
         'name':    sfp.get_name(),
         'present': present,
         'error':   sfp.get_error_description(),
+        'rx_los':  rx_los,
     })
 print(json.dumps(rows))
 """
@@ -417,9 +447,19 @@ def report_qsfp(ssh):
     print()
 
     if present:
+        detail_rows = []
+        for p in present:
+            rx_los = p.get("rx_los")
+            if rx_los and any(rx_los):
+                rxlos_str = "LOSS"
+            elif rx_los is not None:
+                rxlos_str = "OK"
+            else:
+                rxlos_str = "—"
+            detail_rows.append((p["index"], p["name"], rxlos_str, p["error"]))
         _table(
-            ["Index", "Name", "Error Description"],
-            [(p["index"], p["name"], p["error"]) for p in present],
+            ["Index", "Name", "RXLOS", "Error Description"],
+            detail_rows,
             title="Present Modules",
         )
 
@@ -518,24 +558,108 @@ def report_link(ssh):
 # ---------------------------------------------------------------------------
 
 def report_cpld(ssh):
-    """Stage 09 — CPLD version, PSU present/pgood bits, LED register raw values."""
-    sysfs = '/sys/bus/i2c/devices/1-0032'
+    """Stage 09 — CPLD registers via daemon cache (/run/wedge100s/).
 
-    ver_raw, _, _ = ssh.run(f"cat {sysfs}/cpld_version 2>/dev/null || echo N/A")
-    print(f"\n  CPLD version : {ver_raw.strip()}")
+    Reports all 20 CPLD sysfs attributes: identity, PSU status (8 bits),
+    power rail health, reset reason, ROV voltage, COM-e status, and LEDs.
+    """
+    run = '/run/wedge100s'
 
+    def _read(attr):
+        out, _, rc = ssh.run(f"cat {run}/{attr} 2>/dev/null")
+        return out.strip() if rc == 0 else "—"
+
+    # Identity
+    print(f"\n  CPLD version : {_read('cpld_version')}")
+    print(f"  Board rev    : {_read('board_rev')}")
+    print(f"  Model ID     : {_read('model_id')}  (0=wedge100 TOR)")
+
+    # PSU status (all 8 bits of register 0x10)
     psu_rows = []
     for slot in (1, 2):
-        for attr, label in [('psu_present', 'present'), ('psu_power_good', 'pgood')]:
-            val, _, rc = ssh.run(f"cat {sysfs}/{attr}{slot} 2>/dev/null")
-            psu_rows.append((f"PSU{slot}", label, val.strip() if rc == 0 else "err"))
-    _table(["PSU", "Signal", "Value"], psu_rows, title="PSU sysfs bits")
+        for attr, label in [
+            (f'psu{slot}_present',  'present'),
+            (f'psu{slot}_pgood',    'pgood'),
+            (f'psu{slot}_input_ok', 'input_ok'),
+            (f'psu{slot}_alarm',    'alarm'),
+        ]:
+            val = _read(attr)
+            psu_rows.append((f"PSU{slot}", label, val))
+    _table(["PSU", "Signal", "Value"], psu_rows, title="PSU Status (reg 0x10)")
 
+    # Power rail health (regs 0x11, 0x12)
+    pwr_stby = _read('pwr_stby_ok')
+    pwr_s2   = _read('pwr_status2')
+    print(f"\n  Standby power OK : {pwr_stby}")
+    if pwr_s2 != "—":
+        try:
+            val = int(pwr_s2, 0)
+            rail_rows = [
+                ("VCORE",  "1.0V ROV",  (val >> 0) & 1, (val >> 1) & 1),
+                ("VANLOG", "1.0V Analog", (val >> 2) & 1, (val >> 3) & 1),
+                ("V3V3",   "3.3V Main", (val >> 4) & 1, (val >> 5) & 1),
+            ]
+            _table(
+                ["Rail", "Voltage", "VRDY", "HOT"],
+                [(r, v, "OK" if vrdy else "NOT RDY", "OVER-TEMP" if hot else "OK")
+                 for r, v, vrdy, hot in rail_rows],
+                title=f"Power Rail Health (reg 0x12 = {pwr_s2})",
+            )
+        except ValueError:
+            print(f"  pwr_status2 : {pwr_s2}")
+    else:
+        print(f"  pwr_status2 : —")
+
+    # ROV voltage (reg 0x0B)
+    rov = _read('rov_status')
+    if rov != "—":
+        try:
+            val = int(rov, 0)
+            th_rov = val & 0x0f
+            vcore_idsel = (val >> 4) & 0x07
+            voltage = 1.200 - (th_rov * 0.025)
+            print(f"\n  ROV status   : {rov}  (TH_ROV={th_rov} → {voltage:.3f}V, VCORE_IDSEL={vcore_idsel})")
+        except ValueError:
+            print(f"\n  ROV status   : {rov}")
+    else:
+        print(f"\n  ROV status   : —")
+
+    # Reset reason (regs 0x0D, 0x0E, 0x0F)
+    reset_names = {
+        0x00: "Unknown", 0x01: "Standby reset", 0x02: "Main power reset",
+        0x03: "Front panel button", 0x04: "Debug button", 0x05: "FB debug header",
+        0x10: "SW hot reset", 0x11: "SW warm reset", 0x12: "SW cold reset",
+        0x13: "SW power reset", 0x20: "BMC reset (BMC only)",
+        0x21: "BMC → Tomahawk", 0x22: "BMC → COM-e", 0x23: "BMC → main power",
+        0x24: "BMC → full board", 0x25: "BMC watchdog T1", 0x26: "BMC watchdog T2",
+    }
+    reason = _read('reset_reason')
+    if reason != "—":
+        try:
+            code = int(reason, 0)
+            desc = reset_names.get(code, f"unknown code")
+            print(f"  Reset reason : {reason}  ({desc})")
+        except ValueError:
+            print(f"  Reset reason : {reason}")
+    else:
+        print(f"  Reset reason : —")
+    print(f"  Reset src 1  : {_read('reset_source1')}")
+    print(f"  Reset src 2  : {_read('reset_source2')}")
+
+    # COM-e status (reg 0x18)
+    print(f"  COM-e status : {_read('come_status')}")
+
+    # LEDs
     led_rows = []
-    for label, attr, reg in [("SYS1", 'led_sys1', '0x3e'), ("SYS2", 'led_sys2', '0x3f')]:
-        val, _, rc = ssh.run(f"cat {sysfs}/{attr} 2>/dev/null")
-        led_rows.append((label, reg, val.strip() if rc == 0 else "err"))
-    _table(["LED", "Reg", "Raw"], led_rows, title="LED registers")
+    for label, attr in [("SYS1", 'led_sys1'), ("SYS2", 'led_sys2')]:
+        raw = _read(attr)
+        try:
+            val = int(raw, 0)
+            state = LED_NAMES.get(val, f"unknown (0x{val:02x})")
+            led_rows.append((label, raw, state))
+        except ValueError:
+            led_rows.append((label, raw, "—"))
+    _table(["LED", "Raw", "State"], led_rows, title="System LEDs")
 
 
 # ---------------------------------------------------------------------------
