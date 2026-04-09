@@ -4,14 +4,13 @@
 
 ### Skills That Enforce This Workflow
 
-| Skill | When Loaded | What It Enforces |
+| Skill | When to Load | What It Enforces |
 |-------|-------------|-----------------|
 | `wedge100s-topic-branches` | Any change to `FlaxAdvisors/sonic-buildimage` | Branch ownership, merge workflow, commit conventions |
 | `sonic-submodule-patches` | Any change inside `src/<submodule>/` | Quilt patch export, series management, conflict resolution |
-| `wedge100s-doc-check` | **[NEEDED]** Before committing code changes | Verify docstrings/Doxygen present on modified functions |
-| `wedge100s-build-verify` | **[NEEDED]** After merging to master | Run platform .deb build, report pass/fail |
-
-Skills marked **[NEEDED]** do not exist yet. They should be created to close enforcement gaps.
+| `wedge100s-doc-check` | Before committing `.py` or `.c` files | Verify docstrings/Doxygen present on modified functions |
+| `wedge100s-build-verify` | After merging any topic branch to master | Run platform .deb build, verify patches, report pass/fail |
+| `wedge100s-branch-audit` | Periodically or before milestones | Branch sync, file ownership, doc coverage, archive completeness |
 
 ---
 
@@ -286,25 +285,8 @@ The platform .deb must build cleanly before the merge is considered complete.
 - Conflict resolution workflow
 - What survives `make distclean` / `make init`
 
-### Missing Skills (Should Be Created)
+**`wedge100s-doc-check`** — Loaded before committing code to a topic branch. Scans modified `.py` files for public methods missing docstrings and `.c` files for functions missing `@brief` Doxygen headers. Blocks the commit until gaps are fixed.
 
-**`wedge100s-doc-check`** — Should be loaded before committing any code change to a topic branch. Purpose:
-- Scan modified `.py` files for public methods missing docstrings
-- Scan modified `.c` files for functions missing `@brief` Doxygen headers
-- Report gaps and block the commit until they're fixed
-- Distinguish between "needs full docstring" (new function) vs "needs update" (changed signature)
-- Trigger condition: any `git add` of `.py` or `.c` files under `wedge100s-32x/`
+**`wedge100s-build-verify`** — Loaded after merging a topic branch to master. Verifies quilt patches apply cleanly, runs the platform .deb build, and reports pass/fail with specific error context. Includes a failure-mode lookup table for common build errors.
 
-**`wedge100s-build-verify`** — Should be loaded after merging any topic branch to master. Purpose:
-- Run `BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb`
-- Parse build output for errors vs warnings
-- Report pass/fail with specific failure context
-- Optionally verify quilt patches apply cleanly across all submodules before building
-- Trigger condition: after `git merge` into master on `sonic-buildimage`
-
-**`wedge100s-branch-audit`** — Should be loaded periodically or on request. Purpose:
-- Verify all topic branches are synced with master (no stale branches)
-- Check that file ownership hasn't drifted (no files on wrong branches)
-- Verify documentation coverage across all branches
-- Report completeness: files in archive tag vs files on merged master
-- Trigger condition: on request, or before major milestones (image builds, releases)
+**`wedge100s-branch-audit`** — Loaded periodically or before milestones. Checks branch sync status, archive completeness, documentation coverage, file ownership, and quilt patch health. Produces a structured report with action items.
