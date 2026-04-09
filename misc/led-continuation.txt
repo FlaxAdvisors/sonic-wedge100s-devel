@@ -1,0 +1,65 @@
+● We have completed a brainstorming and design session for the Accton Wedge 100S-32X SONiC port.
+  The approved design spec is at:
+    docs/superpowers/specs/2026-03-24-led-daemon-architecture-design.md
+
+  Please read that spec fully before doing anything else.
+
+  ## What was decided
+
+  Four deliverables, approved for implementation:
+
+  D1 — BMC LED init patch
+    - New BMC-side utility: utils/clear_led_diag.sh (deployed to BMC /usr/local/bin/)
+    - platform-init: push SSH key via wedge100s-bmc-auth, deploy clear_led_diag.sh,
+      patch setup_board.sh to call it, run it immediately every boot
+    - Remove _request_led_init() from utils/accton_wedge100s_util.py
+
+  D2 — i2c-daemon: timer+oneshot → persistent daemon
+    - 1s timerfd replaces wedge100s-i2c-poller.timer
+    - /dev/hidraw0 held open; explicit cp2112_cancel() at tick start
+    - daemon_init(): mux_deselect_all() on startup/restart for crash recovery
+    - inotify IN_CLOSE_WRITE on /run/wedge100s/ for ~50ms write-request response
+    - cpld_version cached boot-once (like syseeprom)
+    - Remove: wedge100s-i2c-poller.timer, wedge100s-i2c-poller.service
+
+  D3 — bmc-daemon: timer+oneshot → persistent daemon
+    - 10s timerfd replaces wedge100s-bmc-poller.timer
+    - New shared utility: utils/wedge100s-bmc-auth.c (TTY key push, used by both
+      platform-init and bmc-daemon bmc_connect())
+    - bmc_connect(): wedge100s-bmc-auth → SSH ControlMaster (key re-pushed on every
+      reconnect since BMC clears authorized_keys on reboot)
+    - bmc_ensure_connected(): dead socket detection → full reconnect
+    - Remove syscpld_led_ctrl read/write (superseded by D1)
+    - qsfp_led_position read once at startup/reconnect
+    - Remove: wedge100s-bmc-poller.timer, wedge100s-bmc-poller.service
+
+  D4 — Link + speed LED verification
+    - Verify existing led_proc_init.soc bytecode shows correct green/amber after
+      th_led_en=1 is set by D1. Update bytecode only if hardware test shows wrong colours.
+
+  ## Files to add/remove/modify (from spec)
+
+  New:   utils/clear_led_diag.sh
+  New:   utils/wedge100s-bmc-auth.c
+  New:   service/wedge100s-i2c-daemon.service
+  New:   service/wedge100s-bmc-daemon.service
+
+  Remove: service/wedge100s-i2c-poller.timer
+  Remove: service/wedge100s-i2c-poller.service
+  Remove: service/wedge100s-bmc-poller.timer
+  Remove: service/wedge100s-bmc-poller.service
+
+  Modify: utils/wedge100s-i2c-daemon.c
+  Modify: utils/wedge100s-bmc-daemon.c
+  Modify: utils/accton_wedge100s_util.py  (remove _request_led_init())
+  Modify: debian/rules  (add bmc-auth build/clean steps)
+  Modify: debian/sonic-platform-accton-wedge100s-32x.postinst  (poller → daemon units)
+  Modify: platform-init (add bmc-auth, SSH probe, clear_led_diag.sh deploy+run)
+  Modify: notes/SUBSYSTEMS_LED.md  (add port LED section after D4 hardware test)
+
+  ## Next step
+
+  Use the superpowers:writing-plans skill to produce the implementation plan.
+  The plan should be structured as four independent task groups matching D1–D4,
+  with D1 first (no dependencies), D2 and D3 parallelisable after D1,
+  and D4 last (requires D1 on hardware).

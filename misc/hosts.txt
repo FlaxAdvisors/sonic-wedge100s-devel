@@ -1,0 +1,34 @@
+dbahi@flaxadvisors:~$ pdsh 'echo $(hostname) $(hostname -i)'
+192.168.88.225: test-et7b1 192.168.88.225 10.0.10.225 fe80::1e34:daff:fe7f:9d32 fe80::1e34:daff:fe7f:9d33
+192.168.88.230: test-et6b2 192.168.88.230 10.0.10.241 fe80::ac0:ebff:fed1:8dc6 fe80::ac0:ebff:fed1:8dc7
+192.168.88.232: test-et8b4 192.168.88.232 10.0.10.232 fe80::bace:f6ff:fefe:8aec fe80::bace:f6ff:fefe:8aed
+192.168.88.237: test-et7b3 192.168.88.237 10.0.10.237 fe80::e42:a1ff:fe19:99da fe80::e42:a1ff:fe19:99db
+192.168.88.242: test-et25b1 192.168.88.242 10.0.10.242 fe80::e42:a1ff:fe19:9b5b fe80::9876:a8ff:fe36:4b7f
+192.168.88.243: test-et6b3 192.168.88.243 10.0.10.243 fe80::e42:a1ff:fe19:931a fe80::e42:a1ff:fe19:931b
+
+2 ens3f0np0    b8:ce:f6:0a:f7:c4     link up                          mlx5_core  16.28.1002 (MT_0000000417) 0000:01:00.0 0x15b3:0x1017 hare-lorax 192.168.88.12 local Ethernet6/3
+ 3 ens3f1np1    b8:ce:f6:0a:f7:c5     link up                          mlx5_core  16.28.1002 (MT_0000000417) 0000:01:00.1 0x15b3:0x1017 hare-lorax 192.168.88.12 local Ethernet7/1
+ 4 ens1f0np0    0c:42:a1:19:93:1a     link up       192.168.88.243/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet6/3
+ 5 ens1f1np1    0c:42:a1:19:93:1b     link up          10.0.10.243/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet1/1
+
+and
+
+ 2 ens3f0np0    08:c0:eb:56:6b:ce     link up          10.0.10.230/24  mlx5_core  16.30.1004 (MT_0000000012) 0000:01:00.0 0x15b3:0x1017 hare-lorax 192.168.88.12 local Ethernet6/1
+ 3 ens3f1np1    08:c0:eb:56:6b:cf     link up                          mlx5_core  16.30.1004 (MT_0000000012) 0000:01:00.1 0x15b3:0x1017 hare-lorax 192.168.88.12 local Ethernet8/1
+ 4 ens1f0np0    1c:34:da:7f:b3:a2     link up       192.168.88.230/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet6/1
+ 5 ens1f1np1    1c:34:da:7f:b3:a3   nolink down                        mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.1 0x15b3:0x1015 
+flax@test-et6b1:~$
+
+192.168.88.232:  2 ens1f0np0    b8:ce:f6:fe:8a:ec     link up       192.168.88.232/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:08:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet8/4
+192.168.88.232:  3 ens1f1np1    b8:ce:f6:fe:8a:ed     link up          10.0.10.232/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:08:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet1/2
+192.168.88.230:  2 ens1f0np0    08:c0:eb:d1:8d:c6     link up       192.168.88.230/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:02:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet6/2
+192.168.88.230:  3 ens1f1np1    08:c0:eb:d1:8d:c7     link up          10.0.10.241/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:02:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet21/2
+192.168.88.237:  2 ens1f0np0    0c:42:a1:19:99:da     link up       192.168.88.237/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:02:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet7/3
+192.168.88.237:  3 ens1f1np1    0c:42:a1:19:99:db     link up          10.0.10.237/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:02:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet17/3
+192.168.88.225:  2 ens1f0np0    1c:34:da:7f:9d:32     link up       192.168.88.225/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:02:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet7/1
+192.168.88.225:  3 ens1f1np1    1c:34:da:7f:9d:33     link up          10.0.10.225/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:02:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet21/1
+192.168.88.242:  4 ens1f0np0    0c:42:a1:19:9b:5a     link up                          mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet25/1
+192.168.88.242:  5 ens1f1np1    0c:42:a1:19:9b:5b     link up          10.0.10.242/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet17/4
+192.168.88.242:  6 br0          9a:76:a8:36:4b:7f     link up       192.168.88.242/24    virtual  N/A   
+192.168.88.243:  4 ens1f0np0    0c:42:a1:19:93:1a     link up       192.168.88.243/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.0 0x15b3:0x1015 rabbit-lorax 192.168.88.14 ifname Ethernet6/3
+192.168.88.243:  5 ens1f1np1    0c:42:a1:19:93:1b     link up          10.0.10.243/24  mlx5_core  14.26.4012 (MT_2470112034) 0000:03:00.1 0x15b3:0x1015 hare-lorax 192.168.88.12 local Ethernet1/1

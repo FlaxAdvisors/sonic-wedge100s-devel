@@ -1,0 +1,22 @@
+When eth0 is in the mgmt VRF, all management plane traffic lives in a separate kernel network namespace. To run any command in that
+namespace:
+
+sudo ip vrf exec mgmt <command>
+
+Examples:
+# ping out from the switch
+sudo ip vrf exec mgmt ping 192.168.88.2
+
+# check what the mgmt routing table actually looks like
+sudo ip vrf exec mgmt ip route
+
+# DNS lookup via mgmt interface
+sudo ip vrf exec mgmt nslookup google.com
+
+# curl something from the switch
+sudo ip vrf exec mgmt curl -sk https://192.168.88.1/
+
+Without ip vrf exec mgmt, commands run in the default network namespace where eth0 doesn't exist — only the data-plane front-panel ports (Ethernet0, Ethernet4, …) are there. That's why plain ping 192.168.88.2 fails: there's no route and no interface to reach it from the default namespace.
+
+The same principle applies to any process: sshd, ntpd, dhclient all need to run inside the VRF to use the management interface, which is why the systemd drop-in wraps them with ip vrf exec mgmt.
+   

@@ -1,0 +1,2 @@
+# elapsed   outcome  nodeid
+   5.73s  PASSED   stage_17_report/test_report.py::test_generate_platform_status_report

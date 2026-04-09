@@ -1,0 +1,126 @@
+================================================================================= ERRORS ==================================================================================
+______________________________________________________________ ERROR at setup of test_throughput_100g_eth48 _______________________________________________________________
+stage_23_throughput/test_throughput.py:414: in eos_eth_temp_ip_48
+    eos = _eos_ssh()
+stage_23_throughput/test_throughput.py:389: in _eos_ssh
+    client.connect(EOS_HOST, username=EOS_USER, password=EOS_PASSWD, timeout=10)
+/home/dbahi/.local/lib/python3.8/site-packages/paramiko/client.py:386: in connect
+    sock.connect(addr)
+E   socket.timeout: timed out
+______________________________________________________________ ERROR at setup of test_throughput_100g_eth112 ______________________________________________________________
+stage_23_throughput/test_throughput.py:434: in eos_eth_temp_ip_112
+    eos = _eos_ssh()
+stage_23_throughput/test_throughput.py:389: in _eos_ssh
+    client.connect(EOS_HOST, username=EOS_USER, password=EOS_PASSWD, timeout=10)
+/home/dbahi/.local/lib/python3.8/site-packages/paramiko/client.py:386: in connect
+    sock.connect(addr)
+E   socket.timeout: timed out
+================================================================================ FAILURES =================================================================================
+_________________________________________________________________________ test_led_sys1_is_green __________________________________________________________________________
+stage_08_led/test_led.py:100: in test_led_sys1_is_green
+    assert color == 'green', (
+E   AssertionError: SYS1 LED is 'blue_blink', expected 'green'.
+E     ledd may not be running or platform init may have failed.
+E   assert 'blue_blink' == 'green'
+E     - blue_blink
+E     + green
+-------------------------------------------------------------------------- Captured stdout call ---------------------------------------------------------------------------
+
+SYS1 LED (chassis API): 'blue_blink'
+_______________________________________________________________________ test_bmc_led_init_deployed ________________________________________________________________________
+stage_10_daemon/test_daemon.py:366: in test_bmc_led_init_deployed
+    assert rc2 == 0 and val in ("1", "0x1"), (
+E   AssertionError: th_led_en='0x0\n\nNote:\n0: Tomahawk LED stream 0/1 disabled\n1: Tomahawk LED stream 0/1 enabled\nBit[1:1] @ register 0x3c, register value 0xe0' (expected 1/0x1) — D1 LED init not yet applied
+E   assert (0 == 0
+E     -0
+E     +0 and '0x0' in ('1', '0x1'))
+_______________________________________________________________________ test_counter_clear_accuracy _______________________________________________________________________
+stage_20_traffic/test_traffic.py:289: in test_counter_clear_accuracy
+    assert rx_ok <= 10000, (
+E   AssertionError: Ethernet16 portstat RX_OK=10047 after clear — unexpectedly high; expected <= 10000 in a 3-second window
+E   assert 10047 <= 10000
+_________________________________________________________________________ test_throughput_round2 __________________________________________________________________________
+stage_23_throughput/test_throughput.py:280: in test_throughput_round2
+    pytest.fail("Round 2 pair failures:\n" + "\n".join(f"  {k}: {v}" for k, v in errors.items()))
+E   Failed: Round 2 pair failures:
+E     Eth80↔Eth81: [Eth80↔Eth81(25G same-QSFP)] Throughput 15.94 Gbps < threshold 20 Gbps
+E   assert 15936276507.21913 >= 20000000000.0
+-------------------------------------------------------------------------- Captured stdout call ---------------------------------------------------------------------------
+
+  Round 2 results:
+    Eth66↔Eth0: 9.23 Gbps
+    Ethernet0: ASIC ΔRX=36.306 GB  ΔTX=0.038 GB
+    Ethernet66: ASIC ΔRX=0.038 GB  ΔTX=35.441 GB
+    Ethernet80: ASIC ΔRX=0.028 GB  ΔTX=61.400 GB
+    Ethernet81: ASIC ΔRX=61.400 GB  ΔTX=0.028 GB
+_____________________________________________________________________ test_throughput_round1_reverse ______________________________________________________________________
+stage_23_throughput/test_throughput.py:330: in test_throughput_round1_reverse
+    pytest.fail("Round 1 reverse pair failures:\n" + "\n".join(f"  {k}: {v}" for k, v in errors.items()))
+E   Failed: Round 1 reverse pair failures:
+E     Eth80→Eth0: [Eth80→Eth0(25G×QSFP rev)] Throughput 15.35 Gbps < threshold 20 Gbps
+E   assert 15350281061.161581 >= 20000000000.0
+-------------------------------------------------------------------------- Captured stdout call ---------------------------------------------------------------------------
+
+  Round 1 reverse results:
+    Eth67→Eth66: 9.40 Gbps
+    Ethernet0: ASIC ΔRX=59.537 GB  ΔTX=0.027 GB
+    Ethernet66: ASIC ΔRX=34.683 GB  ΔTX=0.038 GB
+    Ethernet67: ASIC ΔRX=0.038 GB  ΔTX=34.684 GB
+    Ethernet80: ASIC ΔRX=0.026 GB  ΔTX=56.805 GB
+_____________________________________________________________________ test_throughput_round2_reverse ______________________________________________________________________
+stage_23_throughput/test_throughput.py:379: in test_throughput_round2_reverse
+    pytest.fail("Round 2 reverse pair failures:\n" + "\n".join(f"  {k}: {v}" for k, v in errors.items()))
+E   Failed: Round 2 reverse pair failures:
+E     Eth81→Eth80: [Eth81→Eth80(25G same-QSFP rev)] Throughput 19.58 Gbps < threshold 20 Gbps
+E   assert 19576099520.74926 >= 20000000000.0
+-------------------------------------------------------------------------- Captured stdout call ---------------------------------------------------------------------------
+
+  Round 2 reverse results:
+    Eth0→Eth66: 9.41 Gbps
+    Ethernet0: ASIC ΔRX=0.035 GB  ΔTX=36.997 GB
+    Ethernet66: ASIC ΔRX=36.489 GB  ΔTX=0.035 GB
+    Ethernet80: ASIC ΔRX=71.535 GB  ΔTX=0.040 GB
+    Ethernet81: ASIC ΔRX=0.040 GB  ΔTX=71.536 GB
+________________________________________________________________ TestBGPContainer.test_bgp_feature_enabled ________________________________________________________________
+stage_26_l3_bgp/test_l3_bgp.py:20: in test_bgp_feature_enabled
+    assert out.strip() == 'enabled' or '"enabled"' in out, \
+E   AssertionError: BGP feature not enabled: 'disabled\n'
+E   assert ('disabled' == 'enabled'
+E     - disabled
+E     + enabled or '"enabled"' in 'disabled\n')
+_______________________________________________________________ TestBGPContainer.test_bgp_container_running _______________________________________________________________
+stage_26_l3_bgp/test_l3_bgp.py:28: in test_bgp_container_running
+    assert out.strip().startswith('Up'), f'BGP container not Up: {out!r}'
+E   AssertionError: BGP container not Up: ''
+E   assert False
+E    +  where False = <built-in method startswith of str object at 0x7fefa8b442f0>('Up')
+E    +    where <built-in method startswith of str object at 0x7fefa8b442f0> = ''.startswith
+E    +      where '' = <built-in method strip of str object at 0x7fefa8b442f0>()
+E    +        where <built-in method strip of str object at 0x7fefa8b442f0> = ''.strip
+_____________________________________________________________ TestBGPContainer.test_bgpd_running_in_container _____________________________________________________________
+stage_26_l3_bgp/test_l3_bgp.py:34: in test_bgpd_running_in_container
+    assert rc == 0
+E   assert 1 == 0
+E     -1
+E     +0
+___________________________________________________________ TestBGPContainer.test_bgpcfgd_running_in_container ____________________________________________________________
+stage_26_l3_bgp/test_l3_bgp.py:41: in test_bgpcfgd_running_in_container
+    assert rc == 0
+E   assert 1 == 0
+E     -1
+E     +0
+____________________________________________________________ TestBGPContainer.test_zebra_running_in_container _____________________________________________________________
+stage_26_l3_bgp/test_l3_bgp.py:48: in test_zebra_running_in_container
+    assert rc == 0
+E   assert 1 == 0
+E     -1
+E     +0
+_________________________________________________________________ TestBGPContainer.test_loopback0_has_ip __________________________________________________________________
+stage_26_l3_bgp/test_l3_bgp.py:65: in test_loopback0_has_ip
+    assert rc == 0
+E   assert 1 == 0
+E     -1
+E     +0
+---------------------------------------------------------------- generated xml file: /tmp/tmpo0ju1twj.xml -----------------------------------------------------------------
+======================================================= 12 failed, 291 passed, 2 skipped, 2 error in 966.94 seconds =======================================================
+

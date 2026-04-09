@@ -1,14 +1,23 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working in the wedge100s devel workspace.
 
 ## Project
 
 Porting the Accton Wedge 100S-32X (Facebook Wedge 100S, Broadcom Tomahawk) to SONiC.
-Active branch: `wedge100s`. 
-Quick guide to i2c and drivers: notes/i2c_topology.json
 
-I need claude to act as the expert here. Take direction for changes but be sure to comparing the proposed implementation changes to other platform accton broadcom platforms and especially the OpenNetworkLinux implementation for wedge100s.
+This is the **development companion repo** (`FlaxAdvisors/sonic-wedge100s-devel`). The platform code lives in `FlaxAdvisors/sonic-buildimage`.
+
+I need claude to act as the expert here. Take direction for changes but be sure to compare the proposed implementation changes to other platform accton broadcom platforms and especially the OpenNetworkLinux implementation for wedge100s.
+
+## Repository Layout
+
+| Repo | Local Path | Purpose |
+|---|---|---|
+| `FlaxAdvisors/sonic-buildimage` | `/export/sonic/sonic-buildimage` | Platform fork (clean build clone, based on 202511) |
+| `FlaxAdvisors/sonic-wedge100s-devel` | `/export/sonic/sonic-wedge100s-devel` | This repo: tests, tools, notes, docs |
+
+All platform changes go through topic branches (`wedge100s/<topic>`) that PR into `master` on the platform fork. See `wedge100s-topic-branches` skill for workflow. Development artifacts (tests, notes, tools) stay in this repo and are never committed to the platform fork.
 
 ## Workflow Rules
 
@@ -52,20 +61,39 @@ If a fix is not in a `.patch/` file tracked by the main repo, it **does not exis
 - After 3 failed attempts, surface the full error output and ask for guidance
 - Do NOT retry the exact same failing command unchanged
 
-## KEY File Paths
+## Key File Paths
+
+### Platform Fork (`/export/sonic/sonic-buildimage`)
 
 | Resource | Path |
 |---|---|
-| Development target device directory | `device/accton/x86_64-accton_wedge100s_32x-r0/` |
-| Development target platform modules | `platform/broadcom/sonic-platform-modules-accton/wedge100s-32x/` |
-| Development target build rules | `platform/broadcom/platform-modules-accton.mk` |
-| Development image assembly | `platform/broadcom/one-image.mk` |
-| Development installer platform file | `installer/platforms/x86_64-accton_wedge100s_32x-r0` |
-| Test suite | `tests/` (pytest) |
-| Session summary notes | `notes/` |
-| Auto-memory | `/export/sonic/sonic-buildimage.claude/.claude/memory/**` |
-| Identical platform - different NOS: ONL source | `/export/sonic/OpenNetworkLinux/packages/platforms/accton/x86-64/wedge100s-32x/` |
-| Similar platform - identical ASIC - AS7712 | `device/accton/x86_64-accton_as7712_32x-r0/` |
+| Device directory | `device/accton/x86_64-accton_wedge100s_32x-r0/` |
+| Platform modules | `platform/broadcom/sonic-platform-modules-accton/wedge100s-32x/` |
+| Build rules | `platform/broadcom/platform-modules-accton.mk` |
+| Image assembly | `platform/broadcom/one-image.mk` |
+| Installer config | `installer/platforms/x86_64-accton_wedge100s_32x-r0` |
+| Submodule patches | `src/*.patch/` |
+
+### This Repo (`/export/sonic/sonic-wedge100s-devel`)
+
+| Resource | Path |
+|---|---|
+| Test suite | `tests/` (pytest, 25+ staged phases) |
+| Investigation notes | `notes/` |
+| Design specs | `docs/superpowers/specs/` |
+| Implementation plans | `docs/superpowers/plans/` |
+| Setup guides | `guides/` |
+| Deployment tools | `tools/` |
+| Reference configs | `cfg/` |
+| Build toggle | `patches/wedge100s-only-build.sh` |
+| Auto-memory | `/export/sonic/sonic-wedge100s-devel/.claude/memory/` |
+
+### Reference Platforms
+
+| Resource | Path |
+|---|---|
+| ONL Wedge100S source | `/export/sonic/OpenNetworkLinux/packages/platforms/accton/x86-64/wedge100s-32x/` |
+| Similar platform AS7712 | `/export/sonic/sonic-buildimage/device/accton/x86_64-accton_as7712_32x-r0/` |
 
 
 ## SSH access to Target and Peer
@@ -97,6 +125,9 @@ If a fix is not in a `.patch/` file tracked by the main repo, it **does not exis
 - Platform: Accton Wedge 100S-32X running Arista EOS
 - Direct SSH from dev host works when EOS Po1 has no IP; see tests/notes/lacp-mgmt-reachability-root-cause.md
 
+### Serial Console Log
+- View via: `ssh bang-lorax tail -n 500 screenlog.ttyUSB2.0`
+
 ### Reachability Warning for SONiC and openBMC
 **BEFORE attempting SSH to hardware targets check if they are ping-reachable but SSH-unreachable.
 This happens after every BMC reboot because `authorized_keys` is cleared on reset.
@@ -126,9 +157,11 @@ sshpass -p 'YourPaSsWoRd' ssh-copy-id -o StrictHostKeyChecking=no admin@192.168.
 
 ## Build System Architecture
 
+All build commands run from `/export/sonic/sonic-buildimage`.
+
 ### Three-Layer Pipeline
 
-1. **`Makefile` (host)** — thin wrapper; delegates all targets to `Makefile.work` with `BLDENV=trixie` (or bookworm for cleanup).
+1. **`Makefile` (host)** — thin wrapper; delegates to `Makefile.work` with `BLDENV=trixie` (and bookworm for dependencies). 202511 builds both.
 
 2. **`Makefile.work` (host, Docker orchestrator)** — builds/pulls a `sonic-slave-trixie-<user>:<hash>` Docker image from `sonic-slave-trixie/Dockerfile.j2`, then runs `docker run --privileged` with the repo bind-mounted at `/sonic`. All compilation happens inside this container.
 
@@ -164,6 +197,8 @@ sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
 
 ## Build Commands
 
+Run from `/export/sonic/sonic-buildimage`:
+
 ```bash
 # One-time setup
 make init                              # Clone all git submodules
@@ -190,6 +225,13 @@ ssh admin@192.168.88.12 sudo systemctl stop pmon
 ssh admin@192.168.88.12 sudo dpkg -i sonic-platform-accton-wedge100s-32x*.deb
 ssh admin@192.168.88.12 sudo systemctl start pmon
 ```
+
+### Build Gotchas
+
+- `BUILD_SKIP_TEST=y` only skips `.deb` package tests, NOT Python wheel tests
+- Python wheel tests are controlled by `$($*_TEST)` per-package in `slave.mk` line 1014
+- The build runs bookworm first, then trixie — a bookworm failure blocks trixie
+- Platform .deb depends on the full bookworm dependency chain (containers, wheels)
 
 ## Test Runner
 

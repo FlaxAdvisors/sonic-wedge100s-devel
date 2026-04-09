@@ -1,0 +1,31 @@
+SONiC        Hostname        P1                 P0
+Port                         ID                 port
+===========  ==============  =================  =====
+Ethernet0    localhost       0c:42:a1:19:93:1b  et6/3   flax@192.168.88.243
+Ethernet1    localhost       b8:ce:f6:fe:8a:ed  et8/4   flax@192.168.88.232
+Ethernet66   localhost       0c:42:a1:19:99:db  et7/3   flax@192.168.88.237
+Ethernet67   localhost       0c:42:a1:19:9b:5b  et25/1  flax@192.168.88.242
+Ethernet80   localhost       1c:34:da:7f:9d:33  et7/1   flax@192.168.88.225
+Ethernet81   localhost       08:c0:eb:d1:8d:c7  et6/2   flax@192.168.88.241
+
+SONiC        Hostname        Remote             Capability
+Port                         Port               
+===========  ==============  =================  =====
+Ethernet16   rabbit-lorax    Ethernet13/1       B
+Ethernet32   rabbit-lorax    Ethernet14/1       B
+Ethernet48   rabbit-lorax    Ethernet15/1       B
+Ethernet112  rabbit-lorax    Ethernet16/1       B
+
+SONiC        SONiC                                             Arista  Arista
+Port         Vendor           PN                SN             Port    Vendor           PN               SN
+===========  ===============  ================  =============  ======  ===============  ================ ===========
+Ethernet100  Arista Networks  QSFP28-SR4-100G   G2120113967    26      Arista Networks  QSFP28-SR4-100G  F2020160139
+Ethernet104  Arista Networks  QSFP28-LR4-100G   S2109025969    27      Proficium        QSFP-100G-LR4-M  9245404014 
+Ethernet108  Arista Networks  QSFP28-SR4-100G   G2120114779    28      Arista Networks  QSFP28-SR4-100G  G2120114761
+Ethernet116  ColorChip ltd    C100QSFPCWDM400B  17314400       30      ColorChip ltd    C100QSFPCWDM400B 16450127   
+
+
+
+
+
+
