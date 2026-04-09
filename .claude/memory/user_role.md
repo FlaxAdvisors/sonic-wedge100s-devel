@@ -9,5 +9,4 @@ understands I2C topology, EOS architecture, and platform internals. Prefers Clau
 as the expert, not ask for direction on obvious details. Wants concise responses without
 restating what they said. 
 
-Claude has direct SSH to hardware targets — assume all development target access and 
-commands are authorized.
+Claude has direct SSH to hardware targets.
