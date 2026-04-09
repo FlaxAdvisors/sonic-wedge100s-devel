@@ -127,7 +127,7 @@ motivated this design.
 
 | Module | Purpose |
 |---|---|
-| `i2c_dev` | Exposes `/dev/i2c-N` character devices (daemon fallback path) |
+| `i2c_dev` | Exposes `/dev/i2c-N` character devices (used by i2c-daemon Phase 1 fallback when hidraw unavailable) |
 | `i2c_i801` | Intel PCH SMBus controller, creates `/dev/i2c-0` |
 | `hid_cp2112` | CP2112 USB-HID bridge, creates `/dev/i2c-1` and `/dev/hidraw0` |
 | `wedge100s_cpld` | Custom CPLD driver, bound to `1-0032` via `new_device` |
@@ -188,7 +188,9 @@ systemd
 ```
 
 There is a brief window (~1-2 s) where pmon is running but the i2c cache has
-not yet been written. Python fallback paths cover this gap.
+not yet been written. Python platform API methods return safe defaults during
+this window (`False` for presence, `None` for EEPROM reads). There are no
+Python-side I2C fallback paths — all hardware access is daemon-mediated.
 
 ### systemd Timer Units
 
@@ -1286,9 +1288,9 @@ index 0-31.
 
 | Method | Returns | Source |
 |---|---|---|
-| `get_presence()` | `bool` | `/run/wedge100s/sfp_N_present` (mtime checked, stale > 8 s -> smbus fallback) |
+| `get_presence()` | `bool` | `/run/wedge100s/sfp_N_present` (returns `False` if file missing or unreadable) |
 | `read_eeprom(offset, num_bytes)` | `bytearray` or `None` | `/run/wedge100s/sfp_N_eeprom` |
-| `get_eeprom_path()` | `str` | Daemon cache path if exists, else sysfs fallback |
+| `get_eeprom_path()` | `str` | `/run/wedge100s/sfp_N_eeprom` (always returns daemon cache path) |
 | `get_reset_status()` | `False` (always) | Not wired to host CPU |
 | `get_lpmode()` | `False` (always) | Not wired to host CPU |
 | `reset()` | `False` | Not supported |
