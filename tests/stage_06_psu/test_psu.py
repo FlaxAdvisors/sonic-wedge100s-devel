@@ -48,6 +48,8 @@ for psu in psus:
         'power_w': psu.get_power(),
         'input_voltage_v': psu.get_input_voltage(),
         'input_current_a': psu.get_input_current(),
+        'model': psu.get_model(),
+        'serial': psu.get_serial(),
         'position': psu.get_position_in_parent(),
     })
 print(json.dumps(results))
@@ -292,3 +294,31 @@ print(' | '.join(results) if results else 'NO_FILES')
         "No psu_* files found in /run/wedge100s/\n"
         "Is wedge100s-bmc-poller running? Check: systemctl status wedge100s-bmc-poller"
     )
+
+
+# ------------------------------------------------------------------
+# Python API — model / serial (GAP-016: PMBus block-read)
+# ------------------------------------------------------------------
+
+def test_psu_model_readable(ssh):
+    """PSU model string should be non-empty for present PSUs."""
+    psus = _get_psus(ssh)
+    for psu in psus:
+        if psu['presence']:
+            model = psu.get('model', 'N/A')
+            print(f"  {psu['name']}: model={model!r}")
+            assert model != "N/A", (
+                f"{psu['name']}: model is 'N/A' — PMBus block-read may not be working"
+            )
+
+
+def test_psu_serial_readable(ssh):
+    """PSU serial number should be non-empty for present PSUs."""
+    psus = _get_psus(ssh)
+    for psu in psus:
+        if psu['presence']:
+            serial = psu.get('serial', 'N/A')
+            print(f"  {psu['name']}: serial={serial!r}")
+            assert serial != "N/A", (
+                f"{psu['name']}: serial is 'N/A' — PMBus block-read may not be working"
+            )
