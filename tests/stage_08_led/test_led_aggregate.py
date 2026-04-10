@@ -1,11 +1,14 @@
-"""Stage 08 supplement - pure-function tests for LED state aggregation.
+"""Stage 08 supplement — pure-function tests for LED state aggregation.
 
 GAP-028: Unit tests for _iface_to_led_port() and _aggregate_led_states()
 from wedge100s-ledup-linkstate. These run without hardware and catch
 regressions in the aggregation logic directly.
 
 The daemon script lives in the platform fork, not on sys.path, so we
-load it via importlib.
+load it via importlib. Because the wedge100s/led-pipeline topic branch
+is not always merged to master, the test looks in several candidate
+paths (worktree first, then buildimage master) and supports an
+environment override via WEDGE100S_LEDUP_DAEMON.
 """
 
 import importlib.machinery
@@ -13,48 +16,73 @@ import importlib.util
 import os
 import pytest
 
-# Path to the daemon script in the platform fork.
-_DAEMON_PATH = (
+# Candidate paths to the daemon script, tried in order.
+# The first path that exists AND contains _aggregate_led_states wins.
+# Set WEDGE100S_LEDUP_DAEMON to override.
+_DAEMON_CANDIDATES = [
+    # Topic branch worktree (where GAP-028 lives before merge to master)
+    "/export/sonic/worktrees/wedge100s-led-pipeline/platform/broadcom/"
+    "sonic-platform-modules-accton/wedge100s-32x/utils/"
+    "wedge100s-ledup-linkstate",
+    # Platform fork master (where GAP-028 lives after merge)
     "/export/sonic/sonic-buildimage/platform/broadcom/"
     "sonic-platform-modules-accton/wedge100s-32x/utils/"
-    "wedge100s-ledup-linkstate"
-)
+    "wedge100s-ledup-linkstate",
+]
+
+
+def _find_daemon_path():
+    """Return the first candidate daemon path that contains GAP-028 code.
+
+    Honors the WEDGE100S_LEDUP_DAEMON environment variable as an override.
+    A path is selected only if the file both exists and contains the
+    _aggregate_led_states function — prevents silently loading a
+    pre-GAP-028 copy of the daemon and skipping every test.
+
+    Returns:
+        str or None: Path to a daemon file with GAP-028, or None if
+            no candidate path matches.
+    """
+    override = os.environ.get("WEDGE100S_LEDUP_DAEMON")
+    candidates = [override] if override else _DAEMON_CANDIDATES
+
+    for path in candidates:
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            with open(path) as f:
+                content = f.read()
+        except OSError:
+            continue
+        if "_aggregate_led_states" in content:
+            return path
+    return None
 
 
 @pytest.fixture(scope="module")
 def daemon():
     """Load the daemon script as a module without executing main().
 
-    Skips the test if the daemon file is not present at the expected
-    path, or if the expected helper functions are missing (e.g. when
-    running against a sonic-buildimage checkout on a branch that
-    predates Task 5).
-
-    The daemon is an executable script with no .py extension, so
-    importlib.util.spec_from_file_location() won't auto-detect a
-    loader. We use SourceFileLoader explicitly.
+    Searches candidate paths (worktree first, then master) for a daemon
+    file that contains the GAP-028 aggregation code. Skips the test if
+    none of the candidates match.
     """
-    if not os.path.exists(_DAEMON_PATH):
-        pytest.skip(f"Daemon script not found at {_DAEMON_PATH}")
+    path = _find_daemon_path()
+    if path is None:
+        pytest.skip(
+            "No daemon file with GAP-028 code found. Tried: "
+            + ", ".join(_DAEMON_CANDIDATES)
+            + ". Set WEDGE100S_LEDUP_DAEMON to override."
+        )
 
     loader = importlib.machinery.SourceFileLoader(
-        "wedge100s_ledup_linkstate", _DAEMON_PATH
+        "wedge100s_ledup_linkstate", path
     )
-    spec = importlib.util.spec_from_loader(
-        "wedge100s_ledup_linkstate", loader
-    )
+    spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     # The daemon uses `if __name__ == "__main__": main()` so importing
-    # it does not execute main().
-    spec.loader.exec_module(module)
-
-    # Sanity-check that the functions under test are present. On a
-    # platform fork branch that predates Task 5, these won't exist.
-    if not hasattr(module, "_aggregate_led_states"):
-        pytest.skip(
-            "Daemon at %s predates GAP-028 "
-            "(no _aggregate_led_states)" % _DAEMON_PATH
-        )
+    # does not execute main().
+    loader.exec_module(module)
     return module
 
 
