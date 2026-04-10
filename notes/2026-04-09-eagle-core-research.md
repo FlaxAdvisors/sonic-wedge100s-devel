@@ -41,7 +41,7 @@ No changes made — read-only introspection only.
   (no portmap_66 or portmap_67)
   portmap_68.0=69:100
   ...
-  portmap_99.0=96:25:i
+  portmap_99.0=92:25:i
   (no portmap_100 or portmap_101)
   portmap_102.0=101:100
   ```

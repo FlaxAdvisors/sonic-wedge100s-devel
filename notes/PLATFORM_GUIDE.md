@@ -1554,7 +1554,13 @@ Each PHY has an EEPROM accessible via the BMC_I2C_8 PCA9548 mux:
 The Tomahawk BCM56960 has an internal "Eagle Core" 10G SGMII MAC that is wired
 to BCM5387 port P1. This provides a potential in-band management path through
 the switching ASIC, but it is reserved and unused in the current configuration.
-Enabling it would require BCM config changes and additional SONiC integration.
+
+A 2026-04-09 investigation (`notes/2026-04-09-eagle-core-research.md`, GAP-024)
+concluded enablement is blocked pending board schematic review: the BCM SDK has
+no management port registered at runtime, the AS7712 reference platform ships
+the TSC-E portmap entries commented out, the Facebook Wedge100 sibling has zero
+Eagle Core references, and the bonus `phy info` finding on SerDes 129 needs
+schematic correlation before any portmap entry can be added safely.
 
 ### Management Access
 
