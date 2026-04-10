@@ -62,6 +62,26 @@ def _validate_topology(topology: dict) -> None:
             )
 
 
+_WEDGE100S_SERVICES = [
+    "wedge100s-i2c-daemon",
+    "wedge100s-bmc-daemon",
+    "wedge100s-flex-counter-daemon",
+    "wedge100s-ledup-linkstate",
+]
+
+
+def _restart_platform_services(ssh) -> None:
+    """Restart all wedge100s platform services after a .deb deploy.
+
+    dpkg -i stops services during reinstall; Restart=on-failure services
+    won't come back after a clean stop.  Explicitly restart them all so
+    sysmonitor sees them as active and posts SYSTEM_READY=UP.
+    """
+    svc_list = " ".join(_WEDGE100S_SERVICES)
+    print(f"  [deploy] Restarting platform services...", flush=True)
+    ssh.run(f"sudo systemctl restart {svc_list}", timeout=30)
+
+
 def _wait_system_ready(ssh, timeout: int = 300) -> None:
     """Block until STATE_DB SYSTEM_READY|SYSTEM_STATE Status == UP.
 
@@ -169,6 +189,7 @@ def main():
     all_ok = True
     for name, task_cls in tasks_to_run:
         if needs_ready and not system_ready_checked and name in _port_tasks:
+            _restart_platform_services(ssh)
             _wait_system_ready(ssh)
             system_ready_checked = True
         ok = _run_task(name, task_cls, ssh, topology, dry_run=args.dry_run)
