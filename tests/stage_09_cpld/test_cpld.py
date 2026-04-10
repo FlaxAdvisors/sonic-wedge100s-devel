@@ -337,22 +337,22 @@ def test_pwr_stby_ok(ssh):
 def test_pwr_status2_healthy(ssh):
     """Decode pwr_status2: VRDY bits should be 1, HOT bits should be 0.
 
-    Bit layout (6 bits):
+    Bit layout (interleaved, per CPLD driver REG_PWR_STATUS2 0x12):
       [0] VCORE_VRDY  — 1=voltage ready
-      [1] VANLOG_VRDY — 1=voltage ready
-      [2] V3V3_VRDY   — 1=voltage ready
-      [3] VCORE_HOT   — 0=normal, 1=over-temperature
-      [4] VANLOG_HOT  — 0=normal, 1=over-temperature
-      [5] V3V3_HOT    — 0=normal, 1=over-temperature
+      [1] VCORE_HOT   — 1=normal, 0=over-temperature (active-low)
+      [2] VANLOG_VRDY — 1=voltage ready
+      [3] VANLOG_HOT  — 1=normal, 0=over-temperature (active-low)
+      [4] V3V3_VRDY   — 1=voltage ready
+      [5] V3V3_HOT    — 1=normal, 0=over-temperature (active-low)
     """
     val = _read_int_attr(ssh, "pwr_status2")
     print(f"\npwr_status2: {val} (0b{val:06b})")
 
     vcore_vrdy  = (val >> 0) & 1
-    vanlog_vrdy = (val >> 1) & 1
-    v3v3_vrdy   = (val >> 2) & 1
-    vcore_hot   = (val >> 3) & 1
-    vanlog_hot  = (val >> 4) & 1
+    vcore_hot   = (val >> 1) & 1
+    vanlog_vrdy = (val >> 2) & 1
+    vanlog_hot  = (val >> 3) & 1
+    v3v3_vrdy   = (val >> 4) & 1
     v3v3_hot    = (val >> 5) & 1
 
     print(f"  VCORE_VRDY={vcore_vrdy}  VANLOG_VRDY={vanlog_vrdy}  V3V3_VRDY={v3v3_vrdy}")
@@ -361,9 +361,9 @@ def test_pwr_status2_healthy(ssh):
     assert vcore_vrdy == 1, "VCORE voltage not ready"
     assert vanlog_vrdy == 1, "VANLOG voltage not ready"
     assert v3v3_vrdy == 1, "V3V3 voltage not ready"
-    assert vcore_hot == 0, "VCORE over-temperature!"
-    assert vanlog_hot == 0, "VANLOG over-temperature!"
-    assert v3v3_hot == 0, "V3V3 over-temperature!"
+    assert vcore_hot == 1, "VCORE over-temperature! (active-low: 0=hot)"
+    assert vanlog_hot == 1, "VANLOG over-temperature! (active-low: 0=hot)"
+    assert v3v3_hot == 1, "V3V3 over-temperature! (active-low: 0=hot)"
 
 
 # ------------------------------------------------------------------
