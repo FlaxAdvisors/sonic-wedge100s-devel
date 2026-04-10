@@ -8,6 +8,20 @@ import pytest
 
 RUN_DIR = "/run/wedge100s"
 
+# Mirror of _IFACE_TO_LED_PORT from the wedge100s-ledup-linkstate daemon.
+# Keep in sync with led_proc_init.soc and the daemon's mapping table.
+# If these drift, update the daemon first (authoritative source).
+_IFACE_TO_LED_PORT = {
+    'Ethernet0':   29, 'Ethernet4':   28, 'Ethernet8':   31, 'Ethernet12':  30,
+    'Ethernet16':   1, 'Ethernet20':   0, 'Ethernet24':   3, 'Ethernet28':   2,
+    'Ethernet32':   5, 'Ethernet36':   4, 'Ethernet40':   7, 'Ethernet44':   6,
+    'Ethernet48':   9, 'Ethernet52':   8, 'Ethernet56':  11, 'Ethernet60':  10,
+    'Ethernet64':  13, 'Ethernet68':  12, 'Ethernet72':  15, 'Ethernet76':  14,
+    'Ethernet80':  17, 'Ethernet84':  16, 'Ethernet88':  19, 'Ethernet92':  18,
+    'Ethernet96':  21, 'Ethernet100': 20, 'Ethernet104': 23, 'Ethernet108': 22,
+    'Ethernet112': 25, 'Ethernet116': 24, 'Ethernet120': 27, 'Ethernet124': 26,
+}
+
 
 def _find_breakout_parent(ssh):
     """Find a 4x25G breakout parent port. Return parent Ethernet index or None.
@@ -20,7 +34,7 @@ def _find_breakout_parent(ssh):
         consecutive sub-ports is present, else None.
     """
     out, _, _ = ssh.run(
-        "show interfaces status | grep -oP 'Ethernet\\d+' | sort -t n -k 2n",
+        "show interfaces status | grep -oP 'Ethernet\\d+'",
         timeout=10)
     ifaces = set(out.strip().split('\n'))
     for idx in range(0, 128, 4):
@@ -56,8 +70,11 @@ def test_led_breakout_all_up_solid(ssh):
     if not all_up:
         pytest.skip(f"Not all sub-ports of Ethernet{parent} are link-up")
 
-    # Read LEDUP1 state file for this LED port
-    led_port = parent // 4  # approximate mapping
+    # Read LEDUP1 state file for this LED port.
+    # Use authoritative mapping from _IFACE_TO_LED_PORT
+    led_port = _IFACE_TO_LED_PORT.get(f'Ethernet{parent}')
+    if led_port is None:
+        pytest.skip(f"No LED port mapping for Ethernet{parent}")
     out, _, rc = ssh.run(
         f"cat {RUN_DIR}/ledup1_port_{led_port} 2>/dev/null", timeout=10)
     if rc != 0:
