@@ -101,11 +101,123 @@ while the Linux kernel on the BMC uses 0-indexed adapter numbers
 | BMC_I2C_2 | `i2c-1` | IR3581 0x10, IR3584 0x12, IR3584 0x14 (verified on hardware 2026-04-09) |
 | BMC_I2C_3 | `i2c-2` | PWR1014A 0x3A (verified on hardware 2026-04-09) |
 | BMC_I2C_10 (per PLATFORM_GUIDE §15) | actually `i2c-9` | TPM SLB96xx 0x20 (verified on hardware 2026-04-09, see notes/2026-04-09-tpm-investigation.md) |
+| BMC_I2C_12 | `i2c-12` | SYSCPLD 0x31 (no +/-1 offset here — 0-indexed both sides) |
+| BMC_I2C_13 | `i2c-13` | **DANGER**: no instantiated devices, but scanning it wedged a ghost slave on 2026-04-09. Do not touch. |
 
 **`PLATFORM_GUIDE.md` bus-number entries for the TPM (§15 line 852, 1701, 1705)
 and for the VRMs / power sequencer (§14) all use the OCP spec names, which
 differ from kernel bus numbers.** When writing daemon code or `i2cset` commands,
-translate by subtracting 1.
+translate by subtracting 1 — **except** for buses 12 and 13, where the OCP
+spec and the kernel bus numbers happen to agree. Always verify with
+`i2cdetect -l` on the BMC before writing any code that hardcodes a bus number.
+
+---
+
+## 3a. NEVER Broad-Scan an Unknown BMC Bus
+
+**DO NOT** run `i2cdetect -y <bus>` or `i2cdump -y <bus> <addr>` on a BMC bus
+unless you already know the bus contains the device you are looking for.
+Broad scans can wedge ghost slaves that do not appear in `ls /sys/bus/i2c/devices/`
+and that no boot-time driver touches. A wedged bus cannot be recovered by the
+Linux kernel's soft recovery (`ast-i2c.N: bus hanged, try to recovery it!`
+followed by `recovery timed out` loops forever), only by a chassis power cycle
+or — sometimes — a BMC reboot.
+
+**Observed incident 2026-04-09 (GAP-026 Task 3 probe):**
+
+```bash
+# DANGEROUS — DO NOT DO THIS
+for bus in 10 11 12 13; do
+    i2cdetect -y $bus 0x30 0x32
+done
+```
+
+That loop hung `ast-i2c.13` on a slave that `ls /sys/bus/i2c/devices/` shows
+no client for. The controller entered an infinite recovery loop:
+
+```
+ast-i2c ast-i2c.13: I2C(13) ast_i2c_wait_bus_not_busy slave_op=0
+ast-i2c ast-i2c.13: ERROR!! I2C(13) bus hanged, try to recovery it!
+ast-i2c ast-i2c.13: I2C's master is locking the bus, try to stop it.
+ast-i2c ast-i2c.13: recovery timed out
+```
+
+The BMC rebooted as collateral damage (watchdog or fscd sensor timeout), and
+after recovery the i2c-13 storm **persisted** in dmesg. Fan/thermal/PSU reads
+on other buses continued to work after the recovery sequence in section 3b.
+
+**Safe alternatives:**
+
+1. **Check ground truth first.** Before any probe, list the instantiated
+   clients on the target bus:
+   ```bash
+   ls /sys/class/i2c-adapter/i2c-<bus>/
+   ```
+   If nothing matches your expected device name, the slave isn't there — do
+   not scan for it.
+2. **Targeted `i2cget` against a known address.** Never broad-scan a range.
+3. **Verify via kernel driver sysfs, not raw i2cget.** The `wedge100s_cpld`
+   driver's sysfs attributes are the ground truth for CPLD registers. If a
+   sysfs attribute doesn't exist, the register is not what you think it is
+   — do not guess.
+
+---
+
+## 3b. Recovery Procedure After Accidental BMC Reboot
+
+If the BMC reboots mid-investigation (watchdog, panic, hung bus), the
+switch-side `wedge100s-bmc-daemon` will enter a restart loop with one of
+these errors:
+
+- `wedge100s-bmc-auth: command timed out` → key push via IPMI/TTY failed
+- `SSH ControlMaster failed` → the IPv6 link-local `usb0` path is down
+
+The daemon uses `root@fe80::ff:fe00:1%usb0` (IPv6 link-local via CDC-ECM
+USB gadget) as `BMC_HOST`, not the 192.168.88.13 IPv4 management address.
+Do not be misled by ping/ssh to .13 working — that's a different path.
+
+**Recovery steps (verified 2026-04-09):**
+
+```bash
+# 1. Re-install the switch's public key on the rebooted BMC via the
+#    still-working switch-jumped SSH path. ssh-copy-id requires sshpass
+#    which SONiC does not ship — use the direct append pattern instead:
+ssh admin@192.168.88.12 "cat /etc/sonic/wedge100s-bmc-key.pub | \
+  sudo ssh -i /etc/sonic/wedge100s-bmc-key -o StrictHostKeyChecking=no \
+    root@192.168.88.13 \
+    'mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys && \
+     sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys && \
+     chmod 600 /root/.ssh/authorized_keys'"
+
+# 2. Bring usb0 back up on the switch. The BMC presents its gadget side
+#    immediately on reboot (`g_cdc gadget: g_cdc ready` in BMC dmesg) but
+#    the switch-side interface may be left DOWN:
+ssh admin@192.168.88.12 "sudo ip link set usb0 up"
+
+# Wait a couple of seconds, then verify:
+ssh admin@192.168.88.12 "ip -br addr show usb0"
+# Expect: usb0  UNKNOWN  fe80::ff:fe00:2/64
+ssh admin@192.168.88.12 "ping6 -c 2 'fe80::ff:fe00:1%usb0'"
+
+# 3. Restart the daemon (reset-failed first to clear the rate limit):
+ssh admin@192.168.88.12 "sudo systemctl reset-failed wedge100s-bmc-daemon && \
+                          sudo systemctl restart wedge100s-bmc-daemon"
+
+# 4. Verify fresh reads:
+ssh admin@192.168.88.12 "stat -c '%y %n' /run/wedge100s/thermal_1 \
+                                          /run/wedge100s/fan_1_front"
+# Expect: timestamps within the last 15 seconds
+```
+
+**CLAUDE.md already documents the key-push fix** ("After BMC reboot,
+`authorized_keys` is cleared. If ping works but SSH fails, use
+`sshpass -p '0penBmc' ssh-copy-id`..."), but sshpass is not installed on
+SONiC, so use the direct-append pattern above instead.
+
+**The `usb0` step is the one nobody documented.** The bmc-daemon's
+"SSH ControlMaster failed" error is silent about WHY — it doesn't tell
+you the interface is down. Always check `ip -br addr show usb0` first
+when debugging bmc-daemon connect failures after a BMC reboot.
 
 ---
 
