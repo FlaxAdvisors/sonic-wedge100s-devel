@@ -11,14 +11,57 @@ Phase 2 architecture:
 
 Port naming: Ethernet0..124 (step 4), corresponding to QSFP ports 0..31.
 
+Populated slots are derived from tools/topology.json — any Ethernet port
+referenced in breakout_ports, optical_ports, portchannels, or hosts implies
+a QSFP slot with an optic or DAC installed.
+
 Phase reference: Phase 6 (QSFP/SFP).
 """
 
 import json
+import os
 import re
 import pytest
 
 NUM_PORTS = 32
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_TOPOLOGY_PATH = os.path.join(_REPO_ROOT, "tools", "topology.json")
+
+
+def _load_topology():
+    with open(_TOPOLOGY_PATH) as f:
+        return json.load(f)
+
+
+def _eth_to_qsfp_slot(eth_name):
+    """Ethernet120 -> 30 (QSFP slot = Ethernet index / 4)."""
+    m = re.match(r"Ethernet(\d+)", eth_name)
+    return int(m.group(1)) // 4 if m else None
+
+
+def _populated_slots():
+    """Return set of 0-based QSFP slot indices that should have optics/DACs."""
+    topo = _load_topology()
+    ports = set()
+
+    for bp in topo.get("breakout_ports", []):
+        ports.add(bp["parent"])
+    for op in topo.get("optical_ports", []):
+        ports.add(op["port"])
+    for pc in topo.get("portchannels", []):
+        for m in pc.get("members", []):
+            ports.add(m)
+    for h in topo.get("hosts", []):
+        ports.add(h["port"])
+
+    slots = set()
+    for p in ports:
+        s = _eth_to_qsfp_slot(p)
+        if s is not None:
+            slots.add(s)
+    return slots
+
 
 QSFP_CAPTURE = """\
 import json, sys
@@ -116,7 +159,6 @@ def test_qsfp_api_port_count(ssh):
         print(f"  {p['name']:15s}  eeprom={p['eeprom_path']}")
     if absent_ports:
         absent_names = [p['name'] for p in absent_ports]
-        # Print compactly — can be long
         print(f"\nAbsent ports ({len(absent_ports)}): {absent_names[:8]}{'...' if len(absent_names)>8 else ''}")
 
     assert len(data) == NUM_PORTS, (
@@ -171,15 +213,44 @@ def test_qsfp_api_absent_error_description(ssh):
 
 
 # ------------------------------------------------------------------
-# EEPROM reads for present ports
+# Topology-aware presence check
 # ------------------------------------------------------------------
 
-def test_qsfp_eeprom_path_exists(ssh):
-    """For present ports, the EEPROM sysfs path exists on the target."""
+def test_qsfp_topology_ports_present(ssh):
+    """Ports referenced in topology.json should have optics/DACs present."""
+    expected = _populated_slots()
     data = _get_qsfps(ssh)
-    present = [p for p in data if p["present"] and p["eeprom_path"]]
+
+    missing = []
+    for p in data:
+        slot = p["index"] - 1  # index is 1-based, slots are 0-based
+        if slot in expected and not p["present"]:
+            missing.append(f"QSFP slot {slot} (Ethernet{slot*4})")
+
+    print(f"\nExpected populated slots: {sorted(expected)}")
+    print(f"Missing: {missing or 'none'}")
+    assert not missing, (
+        f"Topology expects optics/DACs but ports report absent: {missing}"
+    )
+
+
+# ------------------------------------------------------------------
+# EEPROM reads — only for topology-known populated ports
+# ------------------------------------------------------------------
+
+def _topology_present_ports(data):
+    """Filter QSFP data to only ports expected by topology.json."""
+    expected = _populated_slots()
+    return [p for p in data
+            if (p["index"] - 1) in expected and p["present"] and p["eeprom_path"]]
+
+
+def test_qsfp_eeprom_path_exists(ssh):
+    """For topology-populated ports, the EEPROM cache file exists on target."""
+    data = _get_qsfps(ssh)
+    present = _topology_present_ports(data)
     if not present:
-        pytest.skip("No QSFP modules present — cannot test EEPROM path")
+        pytest.skip("No topology-populated QSFP ports present")
 
     for p in present:
         path = p["eeprom_path"]
@@ -190,11 +261,11 @@ def test_qsfp_eeprom_path_exists(ssh):
 
 
 def test_qsfp_eeprom_identifier_byte(ssh):
-    """EEPROM byte 0 (identifier) is non-zero for present QSFP modules."""
+    """EEPROM byte 0 (identifier) is non-zero for topology-populated ports."""
     data = _get_qsfps(ssh)
-    present = [p for p in data if p["present"] and p["eeprom_path"]]
+    present = _topology_present_ports(data)
     if not present:
-        pytest.skip("No QSFP modules present — cannot test EEPROM content")
+        pytest.skip("No topology-populated QSFP ports present")
 
     p = present[0]
     path = p["eeprom_path"]
@@ -210,14 +281,12 @@ def test_qsfp_eeprom_identifier_byte(ssh):
 
 
 def test_qsfp_eeprom_vendor_info(ssh):
-    """At least one present port has ≥4 printable chars in EEPROM vendor bytes 148–163."""
+    """At least one topology-populated port has readable vendor string."""
     data = _get_qsfps(ssh)
-    present = [p for p in data if p["present"] and p["eeprom_path"]]
+    present = _topology_present_ports(data)
     if not present:
-        pytest.skip("No QSFP modules present — cannot test vendor info")
+        pytest.skip("No topology-populated QSFP ports present")
 
-    # DAC cables often have only 1–3 printable chars at offset 148; optical SFPs
-    # have full vendor strings.  Require at least one port to have ≥4 printable chars.
     readable = [(p["name"], p["vendor_name"]) for p in present if p.get("vendor_name")]
 
     print(f"\nVendor-readable ports ({len(readable)}/{len(present)}):")
@@ -227,7 +296,7 @@ def test_qsfp_eeprom_vendor_info(ssh):
         print(f"\nNo readable vendor from: {[p['name'] for p in present]}")
 
     assert readable, (
-        f"No present port has ≥4 printable chars at EEPROM bytes 148–163 "
+        f"No topology-populated port has ≥4 printable chars at EEPROM bytes 148–163 "
         f"(checked {len(present)} ports). "
         f"Possible cause: DAC cable quality (garbled vendor field is a known issue)."
     )
@@ -249,7 +318,7 @@ def _pca9535_check(ssh, bus, addr):
 
 
 def test_pca9535_daemon_cache_ports_0_15(ssh):
-    """PCA9535 presence data for ports 0–15 is in daemon cache files.
+    """PCA9535 presence data for ports 0-15 is in daemon cache files.
 
     Phase 2: i2c-36 does not exist (i2c_mux_pca954x not loaded).
     wedge100s-i2c-daemon reads PCA9535 at mux 0x74 ch2 via /dev/hidraw0
@@ -267,7 +336,7 @@ def test_pca9535_daemon_cache_ports_0_15(ssh):
 
 
 def test_pca9535_daemon_cache_ports_16_31(ssh):
-    """PCA9535 presence data for ports 16–31 is in daemon cache files.
+    """PCA9535 presence data for ports 16-31 is in daemon cache files.
 
     Phase 2: i2c-37 does not exist (i2c_mux_pca954x not loaded).
     wedge100s-i2c-daemon reads PCA9535 at mux 0x74 ch3 via /dev/hidraw0
