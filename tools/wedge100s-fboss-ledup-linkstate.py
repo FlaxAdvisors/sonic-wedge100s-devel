@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+# wedge100s-fboss-ledup-linkstate — Phase 2 FBOSS LED link-state driver
+#
+# Reads per-port link state from SONiC STATE_DB and writes per-LED color
+# bytes to CMIC_LEDUP{0,1}_DATA_RAM[192..223] using the verified 64-LED
+# address map from notes/2026-04-21-fboss-led-mapping.md.
+#
+# This daemon assumes FBOSS's 22-byte LED microcode is loaded on both
+# LEDUP engines. If it's not, the daemon auto-loads it at startup.
+# It can coexist with the existing wedge100s-ledup-linkstate daemon
+# because the two write to disjoint DATA_RAM regions ([64..95] vs
+# [192..223]) — only the currently-loaded bytecode determines which
+# writes actually drive LEDs.
+#
+# Phase-3 cutover (outside this repo) will:
+#   - flip device/accton/.../led_proc_init.soc to load FBOSS bytecode at boot
+#   - retire the old daemon + its DATA_RAM[64..95] safe-zone init
+# until then this daemon must be started after the bytecode is loaded.
+
+import argparse
+import logging
+import signal
+import subprocess
+import sys
+import time
+
+try:
+    from swsscommon import swsscommon  # type: ignore
+    _HAVE_SWSS = True
+except ImportError:  # running outside SONiC environment
+    _HAVE_SWSS = False
+
+# ---------------------------------------------------------------------------
+# Verified 64-LED address map (see notes/2026-04-21-fboss-led-mapping.md).
+# cage_number -> (LEDUP engine 0|1, L arrow DATA_RAM addr, R arrow addr)
+# ---------------------------------------------------------------------------
+CAGE_MAP = {
+    1:  (0, 216, 218),  2:  (0, 217, 219),
+    3:  (0, 221, 222),  4:  (0, 220, 223),
+    5:  (0, 192, 194),  6:  (0, 193, 195),
+    7:  (0, 197, 198),  8:  (0, 196, 199),
+    9:  (0, 200, 202), 10: (0, 201, 203),
+    11: (0, 205, 206), 12: (0, 204, 207),
+    13: (1, 192, 194), 14: (1, 193, 195),
+    15: (1, 197, 198), 16: (1, 196, 199),
+    17: (1, 200, 202), 18: (1, 201, 203),
+    19: (1, 205, 206), 20: (1, 204, 207),
+    21: (1, 208, 210), 22: (1, 209, 211),
+    23: (1, 213, 215), 24: (1, 212, 214),
+    25: (1, 216, 218), 26: (1, 217, 219),
+    27: (1, 221, 222), 28: (1, 220, 223),
+    29: (0, 208, 210), 30: (0, 209, 211),
+    31: (0, 213, 215), 32: (0, 212, 214),
+}
+
+# SONiC Ethernet port -> physical cage number (from port_config.ini
+# `index` column; authoritative front-panel labeling).
+#  Ethernet(4*N) -> cage (N+1), N=0..31.
+# Empirically verified 2026-04-21 by running a single 100G QSFP28 cable
+# through all 32 ports in sequence: each port's link-up lit its own
+# cage's LED correctly.
+PORT_TO_CAGE = {f"Ethernet{4*n}": n + 1 for n in range(32)}
+
+# Palette byte codes — see notes for rendering details on defect LEDs.
+# CAVEAT on COLOR_OFF: we don't actually have a reliable "truly dark" byte
+# value on this board. The FBOSS bytecode falls back to the BCM SDK's
+# HW-populated link-status bytes at DATA_RAM[0..63] when our color byte
+# is 0x00, yielding pink. 0x0f renders off on isolated cages but renders
+# dim pink when applied to all 32 addresses simultaneously — the
+# bytecode has some inter-port coupling we haven't reverse-engineered.
+# So we use 0x00 for COLOR_OFF (admin-down, no daemon state) and use
+# COLOR_RED for link-down to give an unambiguous visible signal.
+COLOR_OFF     = 0x00
+COLOR_CYAN    = 0x01
+COLOR_YELLOW  = 0x02
+COLOR_GREEN   = 0x03
+COLOR_MAGENTA = 0x04
+COLOR_PURPLE  = 0x05
+COLOR_RED     = 0x06
+COLOR_DIM     = 0x07
+
+# 22-byte FBOSS bytecode (fboss/agent/platforms/common/utils/Wedge100LedUtils.cpp)
+FBOSS_BYTECODE = "023F12C0F815670D9075023AC021879921879921 8757"
+
+DEFAULT_POLL_SEC = 1.0
+
+
+# ---------------------------------------------------------------------------
+# Color policy
+# ---------------------------------------------------------------------------
+def port_color(admin: str, oper: str, speed_mbps: int) -> int:
+    """Map a port's (admin/oper/speed) state to a DATA_RAM color byte.
+
+    Color policy (inspired by the AS7712 "blue for unconfigured link" UX,
+    adapted to our 7-color FBOSS palette — no pure blue, so we use the
+    darkest blue-ish we have which is purple):
+
+      admin-down                     -> dim pink (quiet, distinct from active ports)
+      admin-up, link-down            -> purple (AS7712-blue-equivalent)
+      admin-up, link-up, 100G        -> green
+      admin-up, link-up, 40G         -> yellow
+      admin-up, link-up, <40G        -> cyan
+      admin-up, link-up, speed=?     -> magenta (unusual - should not happen)
+
+    No truly-OFF state available on this board (see COLOR_OFF comment).
+    """
+    if admin != "up":
+        return COLOR_DIM       # admin-down: dim pink
+    if oper != "up":
+        return COLOR_PURPLE    # link-down: AS7712-style "blue" (we have purple)
+    if speed_mbps >= 100000:
+        return COLOR_GREEN
+    if speed_mbps >= 40000:
+        return COLOR_YELLOW
+    if speed_mbps > 0:
+        return COLOR_CYAN
+    return COLOR_MAGENTA  # linked but speed unknown — unusual, flag with magenta
+
+
+# ---------------------------------------------------------------------------
+# bcmcmd interface — batched via docker-exec piped rcload
+# ---------------------------------------------------------------------------
+def bcmcmd_batch(cmds):
+    """Execute a list of bcmcmd commands as one docker exec invocation."""
+    if not cmds:
+        return
+    blob = ("\n".join(cmds) + "\n").encode()
+    subprocess.run(
+        ["sudo", "docker", "exec", "-i", "syncd", "sh", "-c",
+         "cat > /tmp/fboss_led_daemon.rc && "
+         "bcmcmd 'rcload /tmp/fboss_led_daemon.rc' >/dev/null 2>&1"],
+        input=blob, check=False,
+    )
+
+
+def bcmcmd_query(cmd: str) -> str:
+    """Run a single bcmcmd and return stdout text."""
+    r = subprocess.run(
+        ["sudo", "docker", "exec", "syncd", "bcmcmd", cmd],
+        capture_output=True, text=True, check=False,
+    )
+    return r.stdout or ""
+
+
+def ensure_fboss_bytecode():
+    """Verify FBOSS bytecode on both engines; reload if missing."""
+    out = bcmcmd_query("getreg CMIC_LEDUP0_PROGRAM_RAM[0]")
+    if "DATA=2" in out or "DATA=0x2" in out:
+        return  # already loaded
+    logging.warning("FBOSS bytecode not loaded; programming both engines")
+    for n in (0, 1):
+        bcmcmd_query(f"led {n} stop")
+        bcmcmd_query(f"led {n} prog {FBOSS_BYTECODE}")
+        bcmcmd_query(f"led {n} start")
+
+
+def build_frame(port_states: dict) -> list:
+    """Translate {port: (admin, oper, speed_mbps)} into bcmcmd setregs."""
+    cmds = []
+    for port, cage in PORT_TO_CAGE.items():
+        admin, oper, speed = port_states.get(port, ("down", "down", 0))
+        color = port_color(admin, oper, speed)
+        eng, laddr, raddr = CAGE_MAP[cage]
+        cmds.append(f"setreg CMIC_LEDUP{eng}_DATA_RAM[{laddr}] 0x{color:02x}")
+        cmds.append(f"setreg CMIC_LEDUP{eng}_DATA_RAM[{raddr}] 0x{color:02x}")
+    cmds += [
+        "setreg CMIC_LEDUP0_CTRL 0x2a8",
+        "setreg CMIC_LEDUP0_CTRL 0x2a9",
+        "setreg CMIC_LEDUP1_CTRL 0x1e8",
+        "setreg CMIC_LEDUP1_CTRL 0x1e9",
+    ]
+    return cmds
+
+
+def build_all_off_frame() -> list:
+    """Frame that clears DATA_RAM[192..223] on both engines to 0x00."""
+    cmds = []
+    for a in range(192, 224):
+        cmds.append(f"setreg CMIC_LEDUP0_DATA_RAM[{a}] 0x00")
+        cmds.append(f"setreg CMIC_LEDUP1_DATA_RAM[{a}] 0x00")
+    cmds += [
+        "setreg CMIC_LEDUP0_CTRL 0x2a8",
+        "setreg CMIC_LEDUP0_CTRL 0x2a9",
+        "setreg CMIC_LEDUP1_CTRL 0x1e8",
+        "setreg CMIC_LEDUP1_CTRL 0x1e9",
+    ]
+    return cmds
+
+
+# ---------------------------------------------------------------------------
+# STATE_DB readers
+# ---------------------------------------------------------------------------
+def _extract_state(d: dict) -> tuple:
+    """Pull (admin, oper, speed_mbps) from a STATE_DB PORT_TABLE hash."""
+    admin = d.get("admin_status", "down")
+    # SONiC's STATE_DB uses netdev_oper_status for the live link state;
+    # oper_status is APPL_DB. Prefer netdev_oper_status, fall back to
+    # oper_status for older SONiC builds.
+    oper = d.get("netdev_oper_status") or d.get("oper_status") or "down"
+    try:
+        speed = int(d.get("speed", "0") or "0")
+    except ValueError:
+        speed = 0
+    return admin, oper, speed
+
+
+def read_port_states_swss() -> dict:
+    db = swsscommon.DBConnector("STATE_DB", 0)
+    tbl = swsscommon.Table(db, "PORT_TABLE")
+    states = {}
+    for port in PORT_TO_CAGE:
+        ok, fvs = tbl.get(port)
+        if not ok:
+            continue
+        states[port] = _extract_state(dict(fvs))
+    return states
+
+
+def read_port_states_redis() -> dict:
+    """Fallback for non-SONiC hosts: spawn redis-cli per port."""
+    states = {}
+    for port in PORT_TO_CAGE:
+        r = subprocess.run(
+            ["redis-cli", "-n", "6", "HGETALL", f"PORT_TABLE|{port}"],
+            capture_output=True, text=True, check=False,
+        )
+        if r.returncode != 0 or not r.stdout.strip():
+            continue
+        lines = r.stdout.strip().split("\n")
+        states[port] = _extract_state(dict(zip(lines[::2], lines[1::2])))
+    return states
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+_stop = False
+
+def _handle_signal(signum, _frame):
+    global _stop
+    _stop = True
+    logging.info("caught signal %d; exiting", signum)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_SEC,
+                        help="Seconds between STATE_DB polls (default 1.0).")
+    parser.add_argument("--oneshot", action="store_true",
+                        help="Apply once and exit (useful for testing).")
+    parser.add_argument("--no-bytecode-check", action="store_true",
+                        help="Skip FBOSS bytecode verify/reload at startup.")
+    parser.add_argument("--clear-on-exit", action="store_true", default=True,
+                        help="Write 0x00 to DATA_RAM[192..223] on shutdown.")
+    parser.add_argument("--verbose", "-v", action="store_true")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(message)s",
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        stream=sys.stderr,
+    )
+
+    read_states = read_port_states_swss if _HAVE_SWSS else read_port_states_redis
+    logging.info("using %s backend", "swsscommon" if _HAVE_SWSS else "redis-cli")
+
+    if not args.no_bytecode_check:
+        ensure_fboss_bytecode()
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
+    last_snapshot = None
+    while not _stop:
+        try:
+            states = read_states()
+            if states != last_snapshot:
+                changed = 0 if last_snapshot is None else sum(
+                    1 for p in states if states.get(p) != last_snapshot.get(p)
+                )
+                logging.info("applying %d port states (%d changed since last)",
+                             len(states), changed)
+                bcmcmd_batch(build_frame(states))
+                last_snapshot = states
+        except Exception as e:  # pragma: no cover
+            logging.exception("frame apply failed: %s", e)
+        if args.oneshot:
+            break
+        time.sleep(args.poll_interval)
+
+    if args.clear_on_exit and not args.oneshot:
+        logging.info("shutdown: clearing DATA_RAM[192..223] to 0x00")
+        bcmcmd_batch(build_all_off_frame())
+
+    logging.info("stopped")
+
+
+if __name__ == "__main__":
+    main()

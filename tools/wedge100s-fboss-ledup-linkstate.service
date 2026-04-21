@@ -1,0 +1,26 @@
+[Unit]
+Description=Wedge 100S FBOSS LED link-state driver (Phase 2)
+Documentation=file:///usr/share/doc/wedge100s-fboss-ledup-linkstate/README
+After=syncd.service
+Requires=syncd.service
+# Coexists with wedge100s-ledup-linkstate.service (the Phase 1 daemon that
+# writes to DATA_RAM[64..95]). Which daemon's writes actually drive the
+# LEDs is determined by whether FBOSS or stock bytecode is loaded.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wedge100s-fboss-ledup-linkstate.py
+# Brief backoff on crash — don't hammer the bcmcmd socket.
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# Graceful shutdown so the clear-on-exit frame has time to land.
+TimeoutStopSec=10
+KillSignal=SIGTERM
+# Platform services commonly run as root; LED register access goes through
+# docker exec to syncd, which requires sudo privileges.
+User=root
+
+[Install]
+WantedBy=multi-user.target
