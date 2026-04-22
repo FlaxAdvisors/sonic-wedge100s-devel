@@ -119,18 +119,30 @@ takes over the panel from the old one.
 Phase 3 will retire the old daemon + stock bytecode entirely, in a
 single topic-branch commit on the platform fork.
 
-## Known limitations (v1)
+## Known limitations
 
 - Polls STATE_DB at 1 Hz — STATE_DB subscription would be lower latency
   but adds swsscommon event-loop complexity.
 - No activity (TX/RX) blink on right arrows.
-- Breakout sub-ports (4×25G) not handled — reads only the parent
-  `Ethernet(N*4)` of each cage. When a cage is in breakout mode, the
-  parent port is typically down; the daemon will show that as "link
-  down" even if the breakout lanes are up. Fix in v2.
 - No dynamic port add/remove — relies on hardcoded `PORT_TO_CAGE` map.
-  A breakout or hwsku change requires a daemon restart.
+  A hwsku change (not just breakout mode) requires a daemon restart.
 - CTRL pulse every frame even when nothing changed — benign but wasteful.
+
+### Breakout handling
+
+`PORT_TO_CAGE` maps all 128 possible `Ethernet0..127` names to the 32 cages
+(4 sub-port names per cage). At each poll the daemon collects sub-port
+states per cage and aggregates them via `aggregate_cage_state()`:
+
+- Any oper-up sub-port wins — the cage reports the **max speed** of linked
+  lanes as its effective speed (so 3-of-4 linked at 10G still lights cyan).
+- If no sub-port is oper-up but any sub-port is admin-up → `(up, down, 0)`
+  → purple ("pending link").
+- All sub-ports admin-down → `(down, down, 0)` → dim pink.
+
+This covers 1x100G, 2x50G, 4x25G, and 4x10G breakouts transparently. A
+physical port in 1x100G mode has a single sub-port (`Ethernet(N*4)`);
+sub-ports `(N*4+1..3)` simply don't appear in STATE_DB and are skipped.
 
 ## References
 
