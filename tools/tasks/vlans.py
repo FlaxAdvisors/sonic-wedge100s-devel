@@ -50,8 +50,40 @@ class VlanTask(ConfigTask):
 
         return changes
 
+    def _strip_router_interface(self, port: str) -> None:
+        """Remove any router-interface config on a port so it can be added
+        to a VLAN as a member.  `config vlan member add` hard-aborts with
+        'Error: <port> is a router interface!' if an INTERFACE table entry
+        exists — that happens when the factory/default config mapped the
+        port as a routed L3 port (typical for T1/T2 fabric configs).
+
+        We use direct CONFIG_DB DEL rather than `config interface ip remove`
+        because the CLI requires the `bgp` container to be running (it calls
+        into the BGP container to drop the interface from BGP's knowledge).
+        On boxes where bgp is masked (common on test/lab setups) the CLI
+        fails with 'container is not running'.  orchagent sees CONFIG_DB
+        deletes via its regular notification path and properly cleans up
+        the port's L3 state — so direct DEL is correct here.
+        """
+        # Enumerate keys: both the bare 'INTERFACE|Ethernet24' marker and
+        # each 'INTERFACE|Ethernet24|<ip>/<prefix>' entry.
+        keys_out, _, _ = self.ssh.run(
+            f"redis-cli -n 4 keys 'INTERFACE|{port}' 'INTERFACE|{port}|*'",
+            timeout=10,
+        )
+        for key in keys_out.split():
+            self.ssh.run(f"redis-cli -n 4 del '{key}'", timeout=10)
+
     def apply(self, changes: list) -> None:
         for change in changes:
+            # Strip router-interface config before adding a VLAN member;
+            # otherwise 'config vlan member add' aborts with
+            # 'Error: <port> is a router interface!'.
+            if (" member " in change.item
+                    and change.current == "missing"):
+                port = change.item.split()[-1]
+                if port.startswith("Ethernet"):
+                    self._strip_router_interface(port)
             out, err, rc = self.ssh.run(change.cmd, timeout=30)
             if rc != 0:
                 print(f"  [warn] {change.cmd!r} rc={rc}: {err.strip()}")
