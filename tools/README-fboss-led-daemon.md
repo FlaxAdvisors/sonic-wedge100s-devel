@@ -17,34 +17,35 @@ using the verified 64-entry map from
 
 | Port state | Color | Byte |
 |---|---|---|
-| admin down                              | dim pink               | `0x07` |
-| admin up, link down                     | purple (AS7712-"blue") | `0x05` |
-| admin up, link up, ≥ 100 Gbps           | green                  | `0x03` |
-| admin up, link up, 40 Gbps              | yellow                 | `0x02` |
-| admin up, link up, < 40 Gbps            | cyan                   | `0x01` |
-| admin up, link up, unknown speed        | magenta                | `0x04` |
+| admin down                    | dim pink    | `0x07` |
+| admin up, link down (pending) | purple      | `0x05` |
+| 10G link up                   | cyan        | `0x01` |
+| 25G link up                   | magenta     | `0x04` |
+| 40G link up                   | bright pink | `0x00` |
+| 50G link up                   | yellow      | `0x02` |
+| 100G link up                  | green       | `0x03` |
+| *(unknown-speed error)*       | red         | `0x06` |
 
-### Why not just "OFF for link-down"?
+All 5 supported link speeds (10/25/40/50/100 G) get a distinct color —
+see `TODO-FBOSS-COLORS-SUCK.md` for why the palette is this awkward shape
+(no pure blue, no true OFF, `0x00` repurposed as 40G slot because it
+isn't usable as OFF anyway on this board). Red is reserved for
+error/unexpected-speed conditions so users have an unambiguous "something
+is wrong" signal.
 
-Standard switch UX would have unlinked ports dark. The FBOSS bytecode
-on this board has **no reliable "truly OFF" byte**:
-- `0x00` → bright pink (BCM HW auto-populates `DATA_RAM[0..31]` link
-  bits that somehow inject pink into the scan chain)
-- `0x0f` → dim pink when flooded, only appears dark as optical contrast
-  against a bright-pink neighbor
-- Every other byte 0x08..0xff → pink (same as 0x00)
-- Only way to force the panel truly dark is clearing CPLD 0x3c bit 1
-  (`th_led_en`), which gates all LEDs off globally — not per-port.
+### Why no "OFF" for link-down?
 
-The palette choice above borrows from the AS7712's convention: admin-up
-but unlinked gets a distinctive quiet color ("blue" on AS7712, our
-palette's purple — the closest blue-ish we have). Admin-down goes dim
-pink as a subtler "port is configured out" state.
+Standard switch UX would have unlinked ports dark. On this board,
+**no byte produces a reliably dark LED** under the FBOSS bytecode:
+`0x00` shows bright pink, `0x0f` shows dim pink, every other byte shows
+pink too. Only CPLD-level gating (clearing `0x3c bit 1`) blacks the
+panel, and that's all-or-nothing, not per-port. Full analysis and the
+real-fix plan (custom LEDUP microcode) live in
+`../TODO-FBOSS-COLORS-SUCK.md`.
 
-A real per-port OFF capability needs custom LED microcode that checks a
-daemon-controlled "suppress" flag per port. Broadcom LEDASM opcodes
-aren't publicly documented — that's a reverse-engineering project for
-Phase 3 or later.
+So "admin down" renders as dim-pink (our quietest available color) and
+"pending link" renders as purple (distinct, unambiguously "configured
+but not carrying traffic").
 
 Both arrows of a cage currently get the same color. Activity blink
 (TX/RX on R-arrow) is not implemented in v1.
