@@ -22,26 +22,29 @@ from tests.lib.ssh_client import SSHClient
 from tools.tasks.cpu_affinity import CpuAffinityTask
 from tools.tasks.system_tuning import SystemTuningTask
 from tools.tasks.mgmt_vrf import MgmtVrfTask
+from tools.tasks.defaults_cleanup import DefaultsCleanupTask
 from tools.tasks.breakout import BreakoutTask
 from tools.tasks.portchannel import PortChannelTask
 from tools.tasks.vlans import VlanTask
 from tools.tasks.optical import OpticalTask
 
 TASK_ORDER = [
-    ("system_tuning", SystemTuningTask),
-#    ("cpu_affinity",  CpuAffinityTask),
-#    ("mgmt_vrf",      MgmtVrfTask),
-    ("breakout",      BreakoutTask),
-    ("portchannel",   PortChannelTask),
-    ("vlans",         VlanTask),
-    ("optical",       OpticalTask),
+    ("system_tuning",    SystemTuningTask),
+#    ("cpu_affinity",     CpuAffinityTask),
+#    ("mgmt_vrf",         MgmtVrfTask),
+    ("defaults_cleanup", DefaultsCleanupTask),
+    ("breakout",         BreakoutTask),
+    ("portchannel",      PortChannelTask),
+    ("vlans",            VlanTask),
+    ("optical",          OpticalTask),
 ]
 
 # Tasks at or after this index require the SONiC platform stack to be up
-# (portsyncd must have populated PORT entries in config_db).  Tasks before
-# it (system_tuning, cpu_affinity, mgmt_vrf) must NOT be gated — especially
-# mgmt_vrf, which must run before the system is fully ready to restore SSH.
-_SYSTEM_READY_TASK = "breakout"
+# (portsyncd must have populated PORT entries in config_db, orchagent must
+# be consuming CONFIG_DB table updates).  Tasks before it (system_tuning,
+# cpu_affinity, mgmt_vrf) must NOT be gated — especially mgmt_vrf, which
+# must run before the system is fully ready to restore SSH.
+_SYSTEM_READY_TASK = "defaults_cleanup"
 
 DEFAULT_TARGET_CFG = os.path.join(_REPO_ROOT, "tests", "target.cfg")
 DEFAULT_TOPOLOGY   = os.path.join(_TOOLS_DIR, "topology.json")
