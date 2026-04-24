@@ -2,6 +2,8 @@
 
 **This document is the authoritative reference for all development on `FlaxAdvisors/sonic-buildimage`.** CLAUDE.md loads this file. Every contributor (human or AI) must follow these rules without exception.
 
+> **Build host reminder:** The `sonic-buildimage` fork lives on `play-sonic:/export/sonic/sonic-buildimage` (reached via the `bang-fiesta` ProxyCommand). The workspace this document sits in (`/home/flax/git/sonic-wedge100s-devel` on foreman) holds tests/tools/notes only. Every `cd /export/sonic/sonic-buildimage && …` command below should be run as `ssh play-sonic 'cd /export/sonic/sonic-buildimage && …'` unless you are already on the build host.
+
 ### Skills That Enforce This Workflow
 
 | Skill | When to Load | What It Enforces |
@@ -231,12 +233,12 @@ Scopes: `build`, `device`, `platform`, `memory`, `i2c`, `bmc`, `sysfs`, `sfp`, `
 
 ## 5. Build Verification
 
-After merging any topic branch to master:
+After merging any topic branch to master (run on the build host, or via ssh):
 
 ```bash
-cd /export/sonic/sonic-buildimage
-git pull origin master
-BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && \
+  git pull origin master && \
+  BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb'
 ```
 
 The platform .deb must build cleanly before the merge is considered complete.

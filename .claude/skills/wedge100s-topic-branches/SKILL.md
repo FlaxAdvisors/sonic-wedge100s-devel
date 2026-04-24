@@ -9,6 +9,8 @@ description: Use when making any change to the FlaxAdvisors/sonic-buildimage for
 
 All changes to `FlaxAdvisors/sonic-buildimage` go through topic branches that PR into `master`. Master is the integrated, merge-ready state. This keeps the git history clean, grouped by functionality, and theoretically mergeable upstream.
 
+**Where the fork lives:** `play-sonic:/export/sonic/sonic-buildimage`, reached via the `bang-fiesta` ProxyCommand in `~/.ssh/config`. The workspace this skill ships from (foreman) has no local clone — git and build commands run on play-sonic. Wrap commands below in `ssh play-sonic '…'` or work from an interactive `ssh play-sonic` session.
+
 ## Branch Structure
 
 ```
@@ -76,12 +78,12 @@ gh pr create --base master --head wedge100s/<topic> \
 
 Then merge the PR (merge commit, not squash — preserves individual commits).
 
-### Step 4: Update the clean build clone
+### Step 4: Sync the build host checkout
 
-If you maintain a clean build at `/export/sonic/sonic-buildimage`:
+After merging, pull master on `play-sonic` so subsequent builds pick up the change:
+
 ```bash
-cd /export/sonic/sonic-buildimage
-git pull origin master
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && git pull origin master'
 ```
 
 ## Fix Spanning Multiple Topic Branches
@@ -147,12 +149,12 @@ Scopes: `build`, `device`, `platform`, `memory`, `i2c`, `bmc`, `sysfs`, `sfp`, `
 
 ## Build Verification
 
-After merging a PR, verify the platform .deb still builds:
+After merging a PR, verify the platform .deb still builds on the build host:
 
 ```bash
-cd /export/sonic/sonic-buildimage
-git pull origin master
-BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && \
+  git pull origin master && \
+  BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb'
 ```
 
 ## What NOT to Do

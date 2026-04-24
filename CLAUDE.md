@@ -12,10 +12,27 @@ Act as the expert. Take direction for changes but compare proposed implementatio
 
 ## Repository Layout
 
-| Repo | Local Path | Purpose |
+| Repo | Where It Lives | Purpose |
 |---|---|---|
-| `FlaxAdvisors/sonic-buildimage` | `/export/sonic/sonic-buildimage` | Platform fork (clean build, based on 202511) |
-| `FlaxAdvisors/sonic-wedge100s-devel` | `/export/sonic/sonic-wedge100s-devel` | This repo: tests, tools, notes, docs, workflow |
+| `FlaxAdvisors/sonic-buildimage` | `play-sonic:/export/sonic/sonic-buildimage` (remote) | Platform fork (clean build, based on 202511). Build host only. |
+| `FlaxAdvisors/sonic-wedge100s-devel` | `/home/flax/git/sonic-wedge100s-devel` (this host, foreman) | This repo: tests, tools, notes, docs, workflow |
+
+## Build Host Access
+
+The `sonic-buildimage` fork is **not cloned locally on this host** (foreman lacks build capacity). All work on the platform fork runs on `play-sonic` via SSH through the `bang-fiesta` ProxyCommand configured in `~/.ssh/config`.
+
+```bash
+# Git operations on the fork
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && git <...>'
+
+# Builds
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && BLDENV=trixie make <target>'
+
+# Pull a built artifact back to this host
+scp play-sonic:/export/sonic/sonic-buildimage/target/sonic-broadcom.bin ~/Downloads/
+```
+
+Editing files inside the fork requires either an SSH heredoc write or committing through the remote working copy directly. The skills listed below assume this remote-over-SSH model.
 
 ## ⛔ Development Workflow — MANDATORY
 
@@ -55,28 +72,47 @@ All i2c data and debugging should use the `/run/wedge100s/` sysfs interface. Exc
 
 Permissions: unfettered SSH access to all hardware targets via `~/.claude/settings.json` wildcard allow.
 
+The home-lab switch (`lapin`) sits on the dedicated `enp2s0 ↔ wedge100s-mgmt` link, addressed `192.168.99.0/24` by foreman's dnsmasq (see "Home Lab Network" below). Both `lapin` and `lapin-bmc` have static DHCP reservations and `~/.ssh/config` aliases — `ssh lapin` and `ssh lapin-bmc` work directly.
+
 | Target | Access | Notes |
 |---|---|---|
-| SONiC switch | `ssh admin@192.168.88.12` | Kernel 6.1.0-29-2-amd64, use python3 |
-| ONIE | `ssh root@192.168.88.12` | No python available |
-| OpenBMC | `ssh root@192.168.88.13` (pw: `0penBmc`) | No python; `authorized_keys` cleared on reboot |
-| BMC fallback | `root@fe80::ff:fe00:1%usb0` or `/dev/ttyACM0` @ 57600 | Key: `/etc/sonic/wedge100s-bmc-key` |
-| Peer (Arista EOS) | `sshpass -p '0penSesame' ssh -tt admin@192.168.88.14` | |
-| Serial console | `ssh bang-lorax tail -n 500 screenlog.ttyUSB2.0` | |
+| SONiC switch | `ssh admin@lapin` (192.168.99.20) | Kernel 6.12-sonic-amd64, use python3. Default password `YourPaSsWoRd` for first ssh-copy-id. |
+| ONIE | `ssh root@lapin` (192.168.99.20) | When booted into ONIE rescue. No python. |
+| OpenBMC | `ssh root@lapin-bmc` (192.168.99.21, pw `0penBmc`) | OpenBMC 4.1.51. No python; `authorized_keys` cleared on reboot. udhcpc only fires once at POST — see feedback memory. |
+| BMC IPv6 LL fallback | `ssh root@fe80::82a2:35ff:fe71:2d09%enp2s0` | EUI-64 from BMC MAC `80:a2:35:71:2d:09`. Works even when BMC's DHCP didn't fire. |
+| Host serial console (via BMC) | `ssh lapin-bmc /usr/local/bin/sol.sh` | Exit with `<Enter>~.` |
 
-**BMC reachability:** After BMC reboot, `authorized_keys` is cleared. If ping works but SSH fails, use `sshpass -p '0penBmc' ssh-copy-id -o StrictHostKeyChecking=no root@192.168.88.13` instead of prompting the user.
+**BMC reachability after reboot:** `authorized_keys` is cleared. If ping works but SSH fails, run:
+```bash
+sshpass -p '0penBmc' ssh-copy-id -o StrictHostKeyChecking=no root@lapin-bmc
+```
+
+## Home Lab Network
+
+Foreman serves DHCP, HTTP (for ONIE network installs), and NAT to the wedge100s on the dedicated wired link.
+
+| Component | Where | Notes |
+|---|---|---|
+| `enp2s0` (wired) | `192.168.99.1/24` static via `/etc/netplan/02-enp2s0.yaml` (renderer: networkd) | NM unmanages it via `/etc/NetworkManager/conf.d/99-unmanaged-enp2s0.conf` |
+| `wlp3s0` (wifi) | NetworkManager-managed, home LAN | Untouched — losing it would lose the headless box |
+| dnsmasq (DHCP) | `/etc/dnsmasq.d/switch-mgmt.conf` | DHCP-only (`port=0`, no DNS), `bind-dynamic`, range `.10-.50`, reservations for lapin/lapin-bmc |
+| Apache (HTTP) | `/etc/apache2/sites-available/srv-htdocs.conf` → `/srv/www/htdocs` | Serves NOS installers for `onie-nos-install`. Foreman vhosts disabled. |
+| NAT | `iptables-persistent` MASQUERADE on `wlp3s0` for `192.168.99.0/24` | Lets switch reach internet via wifi |
+| Foreman / Puppet stack | Stopped + disabled | Was hijacking port 80; replaced by simple apache vhost |
 
 ## Key Paths
 
-### Platform Fork (`/export/sonic/sonic-buildimage`)
+### Platform Fork (`play-sonic:/export/sonic/sonic-buildimage`)
 
-| Resource | Path |
+All paths below are relative to the build host — prefix with `ssh play-sonic 'cd /export/sonic/sonic-buildimage && …'` to access.
+
+| Resource | Path (on play-sonic) |
 |---|---|
 | Device directory | `device/accton/x86_64-accton_wedge100s_32x-r0/` |
 | Platform modules | `platform/broadcom/sonic-platform-modules-accton/wedge100s-32x/` |
 | Submodule patches | `src/*.patch/` |
 
-### This Repo (`/export/sonic/sonic-wedge100s-devel`)
+### This Repo (`/home/flax/git/sonic-wedge100s-devel`)
 
 | Resource | Path |
 |---|---|
@@ -86,27 +122,30 @@ Permissions: unfettered SSH access to all hardware targets via `~/.claude/settin
 | Notes | `notes/` |
 | Skills | `.claude/skills/` |
 
-### Reference Platforms
+### Reference Platforms (on play-sonic)
 
 | Resource | Path |
 |---|---|
-| ONL Wedge100S | `/export/sonic/OpenNetworkLinux/packages/platforms/accton/x86-64/wedge100s-32x/` |
-| Facebook Wedge100 | `device/facebook/x86_64-facebook_wedge100-r0/` (closest HW sibling) |
-| AS7712 | `device/accton/x86_64-accton_as7712_32x-r0/` (same Accton SW stack) |
+| ONL Wedge100S | `play-sonic:/export/sonic/OpenNetworkLinux/packages/platforms/accton/x86-64/wedge100s-32x/` |
+| Facebook Wedge100 | `device/facebook/x86_64-facebook_wedge100-r0/` (inside the fork, closest HW sibling) |
+| AS7712 | `device/accton/x86_64-accton_as7712_32x-r0/` (inside the fork, same Accton SW stack) |
 
 ## Build Quick Reference
 
-See `wedge100s-build-verify` skill and `guides/SONiC-wedge100s-Developers-Guide.md` Section 3 for full details.
+Builds run on **play-sonic** — foreman does not have build capacity. See `wedge100s-build-verify` skill and `guides/SONiC-wedge100s-Developers-Guide.md` Section 3 for full details.
 
 ```bash
 # Platform .deb (trixie — host filesystem)
-BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb'
 
 # Submodule packages (bookworm — Docker containers)
-BLDENV=bookworm make target/debs/bookworm/swss_1.0.0_amd64.deb
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && BLDENV=bookworm make target/debs/bookworm/swss_1.0.0_amd64.deb'
 
 # Full ONIE image (no BLDENV prefix — runs both passes)
-make target/sonic-broadcom.bin
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && make target/sonic-broadcom.bin'
+
+# Pull a finished image back to this host for deploy to the home-lab switch
+scp play-sonic:/export/sonic/sonic-buildimage/target/sonic-broadcom.bin ~/Downloads/
 ```
 
 ## Test Runner

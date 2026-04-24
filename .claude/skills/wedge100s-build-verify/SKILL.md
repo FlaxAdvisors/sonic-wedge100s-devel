@@ -9,6 +9,8 @@ description: Use after merging any wedge100s topic branch to master, or after mo
 
 After merging a topic branch to master or modifying submodule source, verify the affected build target produces a clean artifact. A merge without build verification is incomplete.
 
+**Build host:** `play-sonic:/export/sonic/sonic-buildimage` — reached via the `bang-fiesta` ProxyCommand in `~/.ssh/config`. The local workspace on foreman has no build tree, so every command below runs on play-sonic (either wrap in `ssh play-sonic '…'` or open an interactive `ssh play-sonic` and cd there).
+
 ## When to Use
 
 - After `git merge origin/wedge100s/<topic>` into master
@@ -40,7 +42,7 @@ After merging a topic branch to master or modifying submodule source, verify the
 ### Step 1: Verify Quilt Patches
 
 ```bash
-cd /export/sonic/sonic-buildimage
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && \
 for d in src/*.patch; do
   sub=$(basename "$d" .patch)
   [ -d "src/$sub" ] || continue
@@ -52,7 +54,7 @@ for d in src/*.patch; do
   quilt pop -a -f 2>/dev/null || true
   [ -d .pc ] && rm -rf .pc
   popd > /dev/null
-done
+done'
 ```
 
 **If any patch fails:** Stop. Fix on `wedge100s/submodule-patches` using `sonic-submodule-patches` skill. Do not proceed.
@@ -75,10 +77,10 @@ Match the changed files to the correct build target:
 
 ```bash
 # Clean stale artifact (append -clean to any target path)
-make <target-path>-clean
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && make <target-path>-clean'
 
 # Build
-[BLDENV=<env>] make <target-path>
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && [BLDENV=<env>] make <target-path>'
 ```
 
 ### Step 4: Interpret Results
@@ -106,8 +108,17 @@ make <target-path>-clean
 ## Quick Reference — Platform .deb Only
 
 ```bash
-cd /export/sonic/sonic-buildimage && git checkout master && git pull origin master
-rm -f target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
-BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
-ls -la target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb
+ssh play-sonic 'cd /export/sonic/sonic-buildimage && \
+  git checkout master && git pull origin master && \
+  rm -f target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb && \
+  BLDENV=trixie make target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb && \
+  ls -la target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb'
+```
+
+To pull an artifact back to this host after a successful build:
+
+```bash
+scp play-sonic:/export/sonic/sonic-buildimage/target/debs/trixie/sonic-platform-accton-wedge100s-32x_1.1_amd64.deb ~/Downloads/
+# or for a full image
+scp play-sonic:/export/sonic/sonic-buildimage/target/sonic-broadcom.bin ~/Downloads/
 ```

@@ -9,6 +9,8 @@ description: Use periodically or before milestones to verify topic branch health
 
 Verifies all topic branches are healthy: synced with master, files on correct branches, documentation present, and no regressions from the archive source.
 
+**Build host:** The fork lives on `play-sonic:/export/sonic/sonic-buildimage`. Run the shell blocks below from an interactive `ssh play-sonic` session, or wrap each block in `ssh play-sonic '…'`.
+
 ## When to Use
 
 - Before building a full SONiC image (`sonic-broadcom.bin`)
@@ -21,7 +23,7 @@ Verifies all topic branches are healthy: synced with master, files on correct br
 
 ### Check 1: Branch Sync Status
 
-Verify no topic branch is behind master:
+Verify no topic branch is behind master (run from an interactive `ssh play-sonic` session):
 
 ```bash
 cd /export/sonic/sonic-buildimage
@@ -156,7 +158,7 @@ Action Items:
 
 ## Quick Audit (30-second version)
 
-For a fast sanity check, run just checks 1 and 2:
+For a fast sanity check, run just checks 1 and 2 (from an interactive `ssh play-sonic` session):
 
 ```bash
 cd /export/sonic/sonic-buildimage && git fetch origin && \

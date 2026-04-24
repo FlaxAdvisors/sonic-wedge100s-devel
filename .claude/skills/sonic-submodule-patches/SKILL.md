@@ -9,6 +9,8 @@ description: Use when modifying sonic-buildimage submodules and needing changes 
 
 SONiC submodules live under `src/` and are reset by `make init` and `make distclean`. To preserve changes, store them as quilt-format patch files in `src/{submodule}.patch/`. The build system (`slave.mk`) auto-detects and applies these patches before each build using quilt.
 
+**Build host:** All quilt work runs on `play-sonic:/export/sonic/sonic-buildimage` (reached via the `bang-fiesta` ProxyCommand). The foreman workspace has no submodule trees — `ssh play-sonic` in first, or wrap commands in `ssh play-sonic '…'`.
+
 ## Directory Layout
 
 ```

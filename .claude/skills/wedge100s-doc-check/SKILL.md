@@ -9,6 +9,8 @@ description: Use when committing code changes to any wedge100s topic branch — 
 
 Every code change on a wedge100s topic branch must include documentation for modified functions. This skill verifies coverage before commit.
 
+**Build host:** The staged `.py` / `.c` files live on `play-sonic:/export/sonic/sonic-buildimage`, not on foreman. Run the verification from an interactive `ssh play-sonic` session, or wrap each block in `ssh play-sonic '…'`.
+
 ## When to Use
 
 - Before any `git commit` that includes `.py` or `.c` files under `wedge100s-32x/`
