@@ -1,0 +1,24 @@
+
+odd numberd ports at top
+even numbered ports at bottom
+ports are indexed 1-32 for humans
+
+ sys  act
+  o    o     -------- --------       --------
+            |   1    |   3    | ... |   31   |      TOP
+             -------- --------       --------        o
+              ^v  ^v   ^v  ^v         ^v  ^v        
+             -------- --------       --------       BOT
+            |   2    |   4    | ... |   32   |       o
+             -------- --------       -------- 
+
+there is a 'sys' blue blinking LED 'o'
+and an 'act' green LED 'o' on the top left of the front panel
+
+each SFP slot/port has two related LEDs '^ ^' or 'v v'
+the port LEDs are between the top and bottom sfp openings
+two port LEDs on the left: shapped up '^' | down 'v' arrows (in that order) ; and two LEDs on the right up '^' | down 'v'shapped arrows
+
+there are two additional LEDs are on the far right of the front of the switch, labeled top and bot,
+and there is an LED selector button for some reasons. pressing it swaps the in/active LEDs:
+one is on, the other is off - push the button and that state flips.
