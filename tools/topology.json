@@ -1,6 +1,6 @@
 {
   "device": {
-    "mgmt_gateway": "192.168.88.2",
+    "mgmt_gateway": "192.168.99.1",
     "mgmt_vrf": "mgmt"
   },
   "breakout_ports": [
