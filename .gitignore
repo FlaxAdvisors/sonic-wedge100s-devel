@@ -1,3 +1,4 @@
 **/__pycache__
 tests/timing.log
 tests/reports/PLATFORM_STATUS_*.md
+screenlog.ttyUSB*
